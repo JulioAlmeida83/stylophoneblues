@@ -606,7 +606,7 @@ export default function App(){
     playBufferOnce(m, slot.buffer, dest, m.ctx.currentTime+0.01, 1);
   }
 
-  function startLoop(kind: 'drumloop'|'bassloop', index:number, startTime?: number, barIndex?:number){
+  function startLoop(kind: 'drumloop'|'bassloop', index:number, startTime?: number, barIndex?:number, isPlaying: boolean = false){
     const m=mixerRef.current;
     if(!m) return;
     const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
@@ -632,8 +632,8 @@ export default function App(){
     src.connect(gain).connect(dest);
 
     let when = startTime ?? m.ctx.currentTime;
-    const isAlternative = (kind==='drumloop' && drumSource==='loops') || (kind==='bassloop' && bassSource==='loops');
-    if(isAlternative && barIndex !== undefined){
+
+    if(barIndex !== undefined && isPlaying){
       const barOffsetInLoop = barIndex % loop.bars;
       const offsetTime = (barOffsetInLoop * 4 * secondsPerBeat) % loop.buffer.duration;
       src.start(when, offsetTime);
@@ -683,7 +683,7 @@ export default function App(){
     const key = kind+index;
     if(newEnabled && t.isPlaying){
       const m=mixerRef.current;
-      if(m) startLoop(kind, index, t.nextTickTime || m.ctx.currentTime, t.barIndex);
+      if(m) startLoop(kind, index, t.nextTickTime || m.ctx.currentTime, t.barIndex, true);
     } else {
       stopLoop(key);
     }
@@ -692,12 +692,12 @@ export default function App(){
   const drumBank = useMemo(()=> drumSlots.map(s=> s.buffer ?? null), [drumSlots]);
   const { t, setT, start, stop, bars } = useTransport(mixerRef, seqId, {drum: (mutes.drum || drumSource==='loops')?0:volumes.drum, bass:(mutes.bass || bassSource==='loops')?0:volumes.bass, guitar:mutes.guitar?0:volumes.guitar}, drumAssign, drumBank);
 
-  const startAllEnabledLoops = (startTime?: number, barIndex?: number) => {
+  const startAllEnabledLoops = (startTime?: number, barIndex?: number, isPlaying: boolean = true) => {
     drumLoops.forEach((loop, i)=> {
-      if(loop.enabled && loop.buffer) startLoop('drumloop', i, startTime, barIndex);
+      if(loop.enabled && loop.buffer) startLoop('drumloop', i, startTime, barIndex, isPlaying);
     });
     bassLoops.forEach((loop, i)=> {
-      if(loop.enabled && loop.buffer) startLoop('bassloop', i, startTime, barIndex);
+      if(loop.enabled && loop.buffer) startLoop('bassloop', i, startTime, barIndex, isPlaying);
     });
   };
 
@@ -708,7 +708,7 @@ export default function App(){
     if(!m) return;
     if(t.isPlaying){
       const startTime = m.ctx.currentTime + 0.05;
-      startAllEnabledLoops(startTime, t.barIndex);
+      startAllEnabledLoops(startTime, t.barIndex, true);
     } else {
       activeLoopsRef.current.forEach((_, key)=> stopLoop(key));
     }
@@ -723,7 +723,7 @@ export default function App(){
           const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
           if(loop?.enabled){
             stopLoop(key);
-            setTimeout(()=> startLoop(kind as 'drumloop'|'bassloop', index, undefined, t.barIndex), 50);
+            setTimeout(()=> startLoop(kind as 'drumloop'|'bassloop', index, undefined, t.barIndex, true), 50);
           }
         }
       });
@@ -736,7 +736,7 @@ export default function App(){
       if(!m) return;
       activeLoopsRef.current.forEach((_, key)=> stopLoop(key));
       const startTime = m.ctx.currentTime + 0.05;
-      startAllEnabledLoops(startTime, t.barIndex);
+      startAllEnabledLoops(startTime, t.barIndex, true);
     }
   }, [drumSource, bassSource]);
 
