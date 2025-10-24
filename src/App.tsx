@@ -530,6 +530,8 @@ export default function App(){
   const [tempo, setTempo] = useState<number>(100);
   const [volumes, setVolumes] = useState({drum:1, bass:0.9, guitar:0.8, lead:1});
   const [mutes, setMutes] = useState({drum:false, bass:false, guitar:false});
+  const [drumSource, setDrumSource] = useState<'sequence'|'loops'>('sequence');
+  const [bassSource, setBassSource] = useState<'sequence'|'loops'>('sequence');
   const [ctxReady, setCtxReady] = useState(false);
   const [quantize, setQuantize] = useState(true);
   const [maxVoices, setMaxVoices] = useState(8);
@@ -559,12 +561,11 @@ export default function App(){
   const [drumSlots, setDrumSlots] = useState<Slot[]>(Array.from({length:30}, (_,i)=>({name:'Drum '+(i+1), buffer:null})));
   const [bassSlots, setBassSlots] = useState<Slot[]>(Array.from({length:30}, (_,i)=>({name:'Bass '+(i+1), buffer:null, root:40})));
 
-  type LoopSlot = { name:string; buffer:AudioBuffer|null; volume:number; enabled:boolean; bars:number; mode:'continuous'|'alternative' };
-  const [drumLoops, setDrumLoops] = useState<LoopSlot[]>(Array.from({length:8}, (_,i)=>({name:'Drum Loop '+(i+1), buffer:null, volume:0.8, enabled:false, bars:4, mode:'continuous'})));
-  const [bassLoops, setBassLoops] = useState<LoopSlot[]>(Array.from({length:8}, (_,i)=>({name:'Bass Loop '+(i+1), buffer:null, volume:0.7, enabled:false, bars:4, mode:'continuous'})));
+  type LoopSlot = { name:string; buffer:AudioBuffer|null; volume:number; enabled:boolean; bars:number };
+  const [drumLoops, setDrumLoops] = useState<LoopSlot[]>(Array.from({length:8}, (_,i)=>({name:'Drum Loop '+(i+1), buffer:null, volume:0.8, enabled:false, bars:4})));
+  const [bassLoops, setBassLoops] = useState<LoopSlot[]>(Array.from({length:8}, (_,i)=>({name:'Bass Loop '+(i+1), buffer:null, volume:0.7, enabled:false, bars:4})));
 
   const activeLoopsRef = useRef<Map<string, {src: AudioBufferSourceNode; gain: GainNode; startTime: number}>>(new Map());
-  const loopScheduleRef = useRef<{drumLoopActive:boolean; bassLoopActive:boolean}>({drumLoopActive:false, bassLoopActive:false});
 
   const [drumAssign, setDrumAssign] = useState<{kick:number|null; snare:number|null; hat:number|null}>({kick:null, snare:null, hat:null});
 
@@ -629,7 +630,8 @@ export default function App(){
     src.connect(gain).connect(dest);
 
     let when = startTime ?? m.ctx.currentTime;
-    if(loop.mode === 'alternative' && barIndex !== undefined){
+    const isAlternative = (kind==='drumloop' && drumSource==='loops') || (kind==='bassloop' && bassSource==='loops');
+    if(isAlternative && barIndex !== undefined){
       const barOffsetInLoop = barIndex % loop.bars;
       const offsetTime = barOffsetInLoop * 4 * secondsPerBeat;
       src.start(when, offsetTime);
@@ -670,17 +672,6 @@ export default function App(){
     }
   }
 
-  function updateLoopMode(kind: 'drumloop'|'bassloop', index:number, mode:'continuous'|'alternative'){
-    if(kind==='drumloop') setDrumLoops(prev=>{ const p=[...prev]; p[index]={...p[index], mode}; return p; });
-    else setBassLoops(prev=>{ const p=[...prev]; p[index]={...p[index], mode}; return p; });
-    const key = kind+index;
-    const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
-    if(t.isPlaying && loop.enabled){
-      stopLoop(key);
-      setTimeout(()=> startLoop(kind, index, undefined, t.barIndex), 50);
-    }
-  }
-
   function toggleLoop(kind: 'drumloop'|'bassloop', index:number){
     const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
     const newEnabled = !loop.enabled;
@@ -696,11 +687,8 @@ export default function App(){
     }
   }
 
-  const hasAlternativeDrumLoop = useMemo(()=> drumLoops.some(l=> l.enabled && l.mode==='alternative'), [drumLoops]);
-  const hasAlternativeBassLoop = useMemo(()=> bassLoops.some(l=> l.enabled && l.mode==='alternative'), [bassLoops]);
-
   const drumBank = useMemo(()=> drumSlots.map(s=> s.buffer ?? null), [drumSlots]);
-  const { t, setT, start, stop, bars } = useTransport(mixerRef, seqId, {drum: (mutes.drum || hasAlternativeDrumLoop)?0:volumes.drum, bass:(mutes.bass || hasAlternativeBassLoop)?0:volumes.bass, guitar:mutes.guitar?0:volumes.guitar}, drumAssign, drumBank);
+  const { t, setT, start, stop, bars } = useTransport(mixerRef, seqId, {drum: (mutes.drum || drumSource==='loops')?0:volumes.drum, bass:(mutes.bass || bassSource==='loops')?0:volumes.bass, guitar:mutes.guitar?0:volumes.guitar}, drumAssign, drumBank);
 
   useEffect(()=>{ setT(prev=>({...prev, tempo})) }, [tempo, setT]);
 
@@ -733,11 +721,20 @@ export default function App(){
   }, [tempo]);
 
   useEffect(()=>{
-    loopScheduleRef.current = {
-      drumLoopActive: hasAlternativeDrumLoop,
-      bassLoopActive: hasAlternativeBassLoop
-    };
-  }, [hasAlternativeDrumLoop, hasAlternativeBassLoop]);
+    if(t.isPlaying){
+      activeLoopsRef.current.forEach((_, key)=>{
+        const [kind, indexStr] = key.match(/(drumloop|bassloop)(\d+)/)?.slice(1) || [];
+        const index = parseInt(indexStr);
+        if(kind && !isNaN(index)){
+          const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
+          if(loop?.enabled){
+            stopLoop(key);
+            setTimeout(()=> startLoop(kind as 'drumloop'|'bassloop', index, undefined, t.barIndex), 50);
+          }
+        }
+      });
+    }
+  }, [drumSource, bassSource]);
 
   const currentChord = bars[t.barIndex % bars.length]?.chord || {root:0, qual:"7" as const};
   const highlightPCs = useMemo(()=> bluesScalePitchesForChord(currentChord), [currentChord]);
@@ -778,6 +775,22 @@ export default function App(){
         <div>
           <div className="panel">
             <h3 style={{marginTop:0}}>Mixer</h3>
+            <div style={{display:'grid', gridTemplateColumns:'auto auto', gap:'12px', marginBottom:'12px', fontSize:'11px'}}>
+              <label style={{display:'flex', alignItems:'center', gap:'6px'}}>
+                Drum Source:
+                <select value={drumSource} onChange={e=>setDrumSource(e.target.value as 'sequence'|'loops')} style={{fontSize:'11px', padding:'4px'}}>
+                  <option value="sequence">Sequence</option>
+                  <option value="loops">Loops</option>
+                </select>
+              </label>
+              <label style={{display:'flex', alignItems:'center', gap:'6px'}}>
+                Bass Source:
+                <select value={bassSource} onChange={e=>setBassSource(e.target.value as 'sequence'|'loops')} style={{fontSize:'11px', padding:'4px'}}>
+                  <option value="sequence">Sequence</option>
+                  <option value="loops">Loops</option>
+                </select>
+              </label>
+            </div>
             <div className="mixer">
               <Strip name="Drums" value={volumes.drum} onChange={v=>setVolumes({...volumes, drum:v})} muted={mutes.drum} onToggleMute={()=>setMutes({...mutes, drum:!mutes.drum})}/>
               <Strip name="Bass" value={volumes.bass} onChange={v=>setVolumes({...volumes, bass:v})} muted={mutes.bass} onToggleMute={()=>setMutes({...mutes, bass:!mutes.bass})}/>
@@ -889,7 +902,7 @@ export default function App(){
       </Collapsible>
 
       <Collapsible title="Loops Contínuos" defaultOpen={false}>
-        <div className="sub" style={{marginTop:8}}>Continuous: toca sempre | Alternative: substitui bateria/baixo da sequência</div>
+        <div className="sub" style={{marginTop:8}}>Use o Mixer para escolher entre Sequence (bateria/baixo sintetizados) ou Loops (seus samples). Loops habilitados tocam continuamente.</div>
         <div className="slots" style={{gridTemplateColumns:'repeat(2, 1fr)'}}>
           <div className="slotCol">
             <h3>Drum Loops</h3>
@@ -909,12 +922,6 @@ export default function App(){
                         <label style={{fontSize:'12px', display:'flex', alignItems:'center', gap:'6px', marginTop:'8px'}}>
                           <input type="checkbox" checked={loop.enabled} onChange={()=>toggleLoop('drumloop', i)} />
                           <span>Enable Loop</span>
-                        </label>
-                        <label style={{fontSize:'11px', marginTop:'6px', display:'block'}}>
-                          Mode: <select value={loop.mode} onChange={e=>updateLoopMode('drumloop', i, e.target.value as 'continuous'|'alternative')} style={{fontSize:'10px', padding:'2px'}}>
-                            <option value="continuous">Continuous</option>
-                            <option value="alternative">Alternative</option>
-                          </select>
                         </label>
                         <label style={{fontSize:'11px', marginTop:'6px', display:'block'}}>
                           Bars: <input type="number" min={1} max={16} value={loop.bars} onChange={e=>updateLoopBars('drumloop', i, parseInt(e.target.value)||1)} style={{width:'50px'}} />
@@ -949,12 +956,6 @@ export default function App(){
                         <label style={{fontSize:'12px', display:'flex', alignItems:'center', gap:'6px', marginTop:'8px'}}>
                           <input type="checkbox" checked={loop.enabled} onChange={()=>toggleLoop('bassloop', i)} />
                           <span>Enable Loop</span>
-                        </label>
-                        <label style={{fontSize:'11px', marginTop:'6px', display:'block'}}>
-                          Mode: <select value={loop.mode} onChange={e=>updateLoopMode('bassloop', i, e.target.value as 'continuous'|'alternative')} style={{fontSize:'10px', padding:'2px'}}>
-                            <option value="continuous">Continuous</option>
-                            <option value="alternative">Alternative</option>
-                          </select>
                         </label>
                         <label style={{fontSize:'11px', marginTop:'6px', display:'block'}}>
                           Bars: <input type="number" min={1} max={16} value={loop.bars} onChange={e=>updateLoopBars('bassloop', i, parseInt(e.target.value)||1)} style={{width:'50px'}} />
