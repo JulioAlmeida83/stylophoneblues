@@ -559,11 +559,12 @@ export default function App(){
   const [drumSlots, setDrumSlots] = useState<Slot[]>(Array.from({length:30}, (_,i)=>({name:'Drum '+(i+1), buffer:null})));
   const [bassSlots, setBassSlots] = useState<Slot[]>(Array.from({length:30}, (_,i)=>({name:'Bass '+(i+1), buffer:null, root:40})));
 
-  type LoopSlot = { name:string; buffer:AudioBuffer|null; volume:number; enabled:boolean; bars:number };
-  const [drumLoops, setDrumLoops] = useState<LoopSlot[]>(Array.from({length:8}, (_,i)=>({name:'Drum Loop '+(i+1), buffer:null, volume:0.8, enabled:false, bars:4})));
-  const [bassLoops, setBassLoops] = useState<LoopSlot[]>(Array.from({length:8}, (_,i)=>({name:'Bass Loop '+(i+1), buffer:null, volume:0.7, enabled:false, bars:4})));
+  type LoopSlot = { name:string; buffer:AudioBuffer|null; volume:number; enabled:boolean; bars:number; mode:'continuous'|'alternative' };
+  const [drumLoops, setDrumLoops] = useState<LoopSlot[]>(Array.from({length:8}, (_,i)=>({name:'Drum Loop '+(i+1), buffer:null, volume:0.8, enabled:false, bars:4, mode:'continuous'})));
+  const [bassLoops, setBassLoops] = useState<LoopSlot[]>(Array.from({length:8}, (_,i)=>({name:'Bass Loop '+(i+1), buffer:null, volume:0.7, enabled:false, bars:4, mode:'continuous'})));
 
-  const activeLoopsRef = useRef<Map<string, {src: AudioBufferSourceNode; gain: GainNode}>>(new Map());
+  const activeLoopsRef = useRef<Map<string, {src: AudioBufferSourceNode; gain: GainNode; startTime: number}>>(new Map());
+  const loopScheduleRef = useRef<{drumLoopActive:boolean; bassLoopActive:boolean}>({drumLoopActive:false, bassLoopActive:false});
 
   const [drumAssign, setDrumAssign] = useState<{kick:number|null; snare:number|null; hat:number|null}>({kick:null, snare:null, hat:null});
 
@@ -604,7 +605,7 @@ export default function App(){
     playBufferOnce(m, slot.buffer, dest, m.ctx.currentTime+0.01, 1);
   }
 
-  function startLoop(kind: 'drumloop'|'bassloop', index:number, startTime?: number){
+  function startLoop(kind: 'drumloop'|'bassloop', index:number, startTime?: number, barIndex?:number){
     const m=mixerRef.current;
     if(!m) return;
     const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
@@ -627,9 +628,15 @@ export default function App(){
     const dest = kind==='drumloop' ? m.drumBus : m.bassBus;
     src.connect(gain).connect(dest);
 
-    const when = startTime ?? m.ctx.currentTime;
-    src.start(when);
-    activeLoopsRef.current.set(key, {src, gain});
+    let when = startTime ?? m.ctx.currentTime;
+    if(loop.mode === 'alternative' && barIndex !== undefined){
+      const barOffsetInLoop = barIndex % loop.bars;
+      const offsetTime = barOffsetInLoop * 4 * secondsPerBeat;
+      src.start(when, offsetTime);
+    } else {
+      src.start(when);
+    }
+    activeLoopsRef.current.set(key, {src, gain, startTime: when});
   }
 
   function stopLoop(key: string){
@@ -659,7 +666,18 @@ export default function App(){
     const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
     if(t.isPlaying && loop.enabled){
       stopLoop(key);
-      setTimeout(()=> startLoop(kind, index), 50);
+      setTimeout(()=> startLoop(kind, index, undefined, t.barIndex), 50);
+    }
+  }
+
+  function updateLoopMode(kind: 'drumloop'|'bassloop', index:number, mode:'continuous'|'alternative'){
+    if(kind==='drumloop') setDrumLoops(prev=>{ const p=[...prev]; p[index]={...p[index], mode}; return p; });
+    else setBassLoops(prev=>{ const p=[...prev]; p[index]={...p[index], mode}; return p; });
+    const key = kind+index;
+    const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
+    if(t.isPlaying && loop.enabled){
+      stopLoop(key);
+      setTimeout(()=> startLoop(kind, index, undefined, t.barIndex), 50);
     }
   }
 
@@ -672,14 +690,17 @@ export default function App(){
     const key = kind+index;
     if(newEnabled && t.isPlaying){
       const m=mixerRef.current;
-      if(m) startLoop(kind, index, t.nextTickTime || m.ctx.currentTime);
+      if(m) startLoop(kind, index, t.nextTickTime || m.ctx.currentTime, t.barIndex);
     } else {
       stopLoop(key);
     }
   }
 
+  const hasAlternativeDrumLoop = useMemo(()=> drumLoops.some(l=> l.enabled && l.mode==='alternative'), [drumLoops]);
+  const hasAlternativeBassLoop = useMemo(()=> bassLoops.some(l=> l.enabled && l.mode==='alternative'), [bassLoops]);
+
   const drumBank = useMemo(()=> drumSlots.map(s=> s.buffer ?? null), [drumSlots]);
-  const { t, setT, start, stop, bars } = useTransport(mixerRef, seqId, {drum: mutes.drum?0:volumes.drum, bass:mutes.bass?0:volumes.bass, guitar:mutes.guitar?0:volumes.guitar}, drumAssign, drumBank);
+  const { t, setT, start, stop, bars } = useTransport(mixerRef, seqId, {drum: (mutes.drum || hasAlternativeDrumLoop)?0:volumes.drum, bass:(mutes.bass || hasAlternativeBassLoop)?0:volumes.bass, guitar:mutes.guitar?0:volumes.guitar}, drumAssign, drumBank);
 
   useEffect(()=>{ setT(prev=>({...prev, tempo})) }, [tempo, setT]);
 
@@ -688,8 +709,8 @@ export default function App(){
     if(!m) return;
     if(t.isPlaying){
       const startTime = t.nextTickTime || m.ctx.currentTime;
-      drumLoops.forEach((loop, i)=> { if(loop.enabled && loop.buffer) startLoop('drumloop', i, startTime); });
-      bassLoops.forEach((loop, i)=> { if(loop.enabled && loop.buffer) startLoop('bassloop', i, startTime); });
+      drumLoops.forEach((loop, i)=> { if(loop.enabled && loop.buffer) startLoop('drumloop', i, startTime, t.barIndex); });
+      bassLoops.forEach((loop, i)=> { if(loop.enabled && loop.buffer) startLoop('bassloop', i, startTime, t.barIndex); });
     } else {
       activeLoopsRef.current.forEach((_, key)=> stopLoop(key));
     }
@@ -704,12 +725,19 @@ export default function App(){
           const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
           if(loop?.enabled){
             stopLoop(key);
-            setTimeout(()=> startLoop(kind as 'drumloop'|'bassloop', index), 50);
+            setTimeout(()=> startLoop(kind as 'drumloop'|'bassloop', index, undefined, t.barIndex), 50);
           }
         }
       });
     }
   }, [tempo]);
+
+  useEffect(()=>{
+    loopScheduleRef.current = {
+      drumLoopActive: hasAlternativeDrumLoop,
+      bassLoopActive: hasAlternativeBassLoop
+    };
+  }, [hasAlternativeDrumLoop, hasAlternativeBassLoop]);
 
   const currentChord = bars[t.barIndex % bars.length]?.chord || {root:0, qual:"7" as const};
   const highlightPCs = useMemo(()=> bluesScalePitchesForChord(currentChord), [currentChord]);
@@ -861,7 +889,7 @@ export default function App(){
       </Collapsible>
 
       <Collapsible title="Loops Contínuos" defaultOpen={false}>
-        <div className="sub" style={{marginTop:8}}>Loops que tocam continuamente quando o sequenciador está rodando</div>
+        <div className="sub" style={{marginTop:8}}>Continuous: toca sempre | Alternative: substitui bateria/baixo da sequência</div>
         <div className="slots" style={{gridTemplateColumns:'repeat(2, 1fr)'}}>
           <div className="slotCol">
             <h3>Drum Loops</h3>
@@ -881,6 +909,12 @@ export default function App(){
                         <label style={{fontSize:'12px', display:'flex', alignItems:'center', gap:'6px', marginTop:'8px'}}>
                           <input type="checkbox" checked={loop.enabled} onChange={()=>toggleLoop('drumloop', i)} />
                           <span>Enable Loop</span>
+                        </label>
+                        <label style={{fontSize:'11px', marginTop:'6px', display:'block'}}>
+                          Mode: <select value={loop.mode} onChange={e=>updateLoopMode('drumloop', i, e.target.value as 'continuous'|'alternative')} style={{fontSize:'10px', padding:'2px'}}>
+                            <option value="continuous">Continuous</option>
+                            <option value="alternative">Alternative</option>
+                          </select>
                         </label>
                         <label style={{fontSize:'11px', marginTop:'6px', display:'block'}}>
                           Bars: <input type="number" min={1} max={16} value={loop.bars} onChange={e=>updateLoopBars('drumloop', i, parseInt(e.target.value)||1)} style={{width:'50px'}} />
@@ -915,6 +949,12 @@ export default function App(){
                         <label style={{fontSize:'12px', display:'flex', alignItems:'center', gap:'6px', marginTop:'8px'}}>
                           <input type="checkbox" checked={loop.enabled} onChange={()=>toggleLoop('bassloop', i)} />
                           <span>Enable Loop</span>
+                        </label>
+                        <label style={{fontSize:'11px', marginTop:'6px', display:'block'}}>
+                          Mode: <select value={loop.mode} onChange={e=>updateLoopMode('bassloop', i, e.target.value as 'continuous'|'alternative')} style={{fontSize:'10px', padding:'2px'}}>
+                            <option value="continuous">Continuous</option>
+                            <option value="alternative">Alternative</option>
+                          </select>
                         </label>
                         <label style={{fontSize:'11px', marginTop:'6px', display:'block'}}>
                           Bars: <input type="number" min={1} max={16} value={loop.bars} onChange={e=>updateLoopBars('bassloop', i, parseInt(e.target.value)||1)} style={{width:'50px'}} />
