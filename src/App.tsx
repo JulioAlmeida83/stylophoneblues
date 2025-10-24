@@ -440,65 +440,89 @@ function Strip({name, value, onChange, muted, onToggleMute}: {name:string; value
   );
 }
 
+function Collapsible({title, children, defaultOpen=false}: {title:string; children:React.ReactNode; defaultOpen?:boolean}){
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className={'collapsible'+(open?' open':'')}>
+      <div className="collapsible-header" onClick={()=>setOpen(!open)}>
+        <h3 style={{margin:0}}>{title}</h3>
+        <span className="collapsible-toggle">▼</span>
+      </div>
+      <div className="collapsible-content">{children}</div>
+    </div>
+  );
+}
+
 const CSS = `
   :root{ --bg:#0a0f14; --card:#0f1a28; --ink:#e9f2ff; --muted:#a9b9d2; --accent:#64d6ff; --good:#8CFF98; --danger:#ff5c7a; }
   *{ box-sizing:border-box; margin:0; padding:0; }
-  html, body{ height:100%; }
+  html, body{ height:100%; overflow-x:hidden; }
   body{ margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; background:var(--bg); color:var(--ink); overscroll-behavior-y: none; }
-  .app{ max-width:1400px; margin:0 auto; padding:24px; }
-  h1{ font-weight:800; margin:0 0 6px; letter-spacing:.5px; font-size:32px; }
-  h2{ font-weight:700; margin:16px 0 12px; letter-spacing:.3px; font-size:24px; }
-  h3{ font-weight:600; margin:8px 0; font-size:16px; }
-  .sub{ color:var(--muted); margin-bottom:20px; font-size:14px; }
-  .panel{ background:linear-gradient(180deg, rgba(22,31,48,.9), rgba(13,19,31,.9)); border:1px solid rgba(255,255,255,.08); box-shadow:0 20px 50px rgba(0,0,0,.25) inset, 0 8px 30px rgba(0,0,0,.35); border-radius:18px; padding:16px; margin:14px 0; }
-  .row{ display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
-  label{ display:block; margin-bottom:4px; font-size:13px; }
-  select, input[type="range"], input[type="number"], input[type="text"]{ background:#1a2332; color:var(--ink); border:1px solid rgba(255,255,255,.1); border-radius:8px; padding:8px; font-size:13px; }
-  select{ width:220px; }
+  .app{ max-width:1600px; margin:0 auto; padding:12px; }
+  h1{ font-weight:800; margin:0 0 4px; letter-spacing:.5px; font-size:24px; }
+  h2{ font-weight:700; margin:12px 0 8px; letter-spacing:.3px; font-size:18px; }
+  h3{ font-weight:600; margin:4px 0; font-size:14px; }
+  .sub{ color:var(--muted); margin-bottom:12px; font-size:12px; line-height:1.4; }
+  .panel{ background:linear-gradient(180deg, rgba(22,31,48,.9), rgba(13,19,31,.9)); border:1px solid rgba(255,255,255,.08); box-shadow:0 20px 50px rgba(0,0,0,.25) inset, 0 8px 30px rgba(0,0,0,.35); border-radius:12px; padding:12px; margin:8px 0; }
+  .row{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  label{ display:block; margin-bottom:2px; font-size:11px; }
+  select, input[type="range"], input[type="number"], input[type="text"]{ background:#1a2332; color:var(--ink); border:1px solid rgba(255,255,255,.1); border-radius:6px; padding:6px; font-size:12px; }
+  select{ width:180px; }
   input[type="range"]{ width:100%; cursor:pointer; }
-  input[type="number"]{ width:80px; }
+  input[type="number"]{ width:60px; }
   input[type="checkbox"]{ width:auto; cursor:pointer; }
-  .kbdDock{ margin-top:12px; overflow-x:auto; }
-  @media (max-width: 760px){ .kbdDock{ position: sticky; bottom: 8px; z-index: 20; } }
-  .keyboard{ user-select:none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; display:flex; gap:2px; padding:8px; background:#08101a; border-radius:16px; border:1px solid rgba(255,255,255,.06); box-shadow: inset 0 10px 30px rgba(0,0,0,.35); }
-  .key{ position:relative; width:40px; height:140px; border:none; border-radius:8px; cursor:pointer; outline:none; display:flex; align-items:flex-end; justify-content:center; padding-bottom:6px; transition:transform .02s; }
+  .kbdDock{ margin-top:8px; overflow-x:auto; }
+  @media (max-width: 760px){ .kbdDock{ position: sticky; bottom: 0; z-index: 20; } }
+  .keyboard{ user-select:none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; display:flex; gap:1px; padding:6px; background:#08101a; border-radius:12px; border:1px solid rgba(255,255,255,.06); box-shadow: inset 0 10px 30px rgba(0,0,0,.35); }
+  .key{ position:relative; width:32px; height:110px; border:none; border-radius:6px; cursor:pointer; outline:none; display:flex; align-items:flex-end; justify-content:center; padding-bottom:4px; transition:transform .02s; }
+  @media (max-width: 768px){ .key{ width:28px; height:90px; } }
   .key.white{ background: linear-gradient(180deg,#f8fbff,#cfd9ea); color:#1b2430; }
-  .key.black{ background: linear-gradient(180deg,#222938,#0c101a); height:100px; margin:0 -20px; width:36px; z-index:2; color:#d7e5ff; }
-  .key.good{ box-shadow: 0 0 0 3px var(--good) inset, 0 0 18px rgba(140,255,152,.2); }
+  .key.black{ background: linear-gradient(180deg,#222938,#0c101a); height:75px; margin:0 -16px; width:28px; z-index:2; color:#d7e5ff; }
+  @media (max-width: 768px){ .key.black{ height:60px; margin:0 -14px; width:24px; } }
+  .key.good{ box-shadow: 0 0 0 2px var(--good) inset, 0 0 12px rgba(140,255,152,.2); }
   .key:active{ transform: translateY(2px); }
-  .label{ font-size:11px; opacity:.7; text-align:center; line-height:1.2; }
-  .mixer{ display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; }
+  .label{ font-size:9px; opacity:.7; text-align:center; line-height:1.2; }
+  .mixer{ display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; }
   @media (max-width: 768px){ .mixer{ grid-template-columns: repeat(2, 1fr); } }
-  .strip{ background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:12px; }
-  .strip h3{ margin:0 0 8px; font-size:13px; letter-spacing:.5px; color:var(--muted); text-transform:uppercase; }
+  .strip{ background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); border-radius:8px; padding:8px; }
+  .strip h3{ margin:0 0 6px; font-size:11px; letter-spacing:.5px; color:var(--muted); text-transform:uppercase; }
   .vol{ width:100%; }
-  .muterow{ display:flex; gap:8px; margin-top:6px; }
-  .btn{ background: #12233a; color:var(--ink); border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:10px 14px; cursor:pointer; font-size:13px; transition:all .2s; }
+  .muterow{ display:flex; gap:4px; margin-top:4px; }
+  .btn{ background: #12233a; color:var(--ink); border:1px solid rgba(255,255,255,.08); border-radius:8px; padding:6px 10px; cursor:pointer; font-size:11px; transition:all .2s; }
   .btn:hover{ background:#1a2f4a; border-color:rgba(255,255,255,.15); }
   .btn.primary{ background: linear-gradient(180deg,#3aa2ff,#1659bd); border-color:rgba(0,0,0,.2); font-weight:600; }
   .btn.primary:hover{ background: linear-gradient(180deg,#4fb2ff,#2070d5); }
   .btn.stop{ background: linear-gradient(180deg,#ff6d6d,#b81616); font-weight:600; }
   .btn.stop:hover{ background: linear-gradient(180deg,#ff8585,#d02828); }
-  .grid{ display:grid; grid-template-columns: 1.2fr .8fr; gap:16px; }
+  .grid{ display:grid; grid-template-columns: 1.2fr .8fr; gap:12px; }
   @media (max-width: 1024px){ .grid{ grid-template-columns: 1fr; } }
-  .controls{ display:grid; grid-template-columns: repeat(2, 1fr); gap:10px; }
-  .controls label{ display:flex; flex-direction:column; font-size:13px; color:var(--muted); gap:4px; }
-  .slots{ display:grid; grid-template-columns: repeat(3, 1fr); gap:14px; margin-top:16px; }
+  .controls{ display:grid; grid-template-columns: repeat(2, 1fr); gap:8px; }
+  @media (max-width: 640px){ .controls{ grid-template-columns: 1fr; } }
+  .controls label{ display:flex; flex-direction:column; font-size:11px; color:var(--muted); gap:2px; }
+  .slots{ display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; margin-top:12px; }
   @media (max-width: 1024px){ .slots{ grid-template-columns: 1fr; } }
-  .slotCol{ background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:12px; }
-  .slotCol > h3{ margin:0 0 12px; font-size:16px; color:var(--accent); text-transform:uppercase; letter-spacing:.5px; }
-  .slotGrid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:10px; max-height:400px; overflow-y:auto; }
-  .slot{ background:#0f1724; border:1px solid rgba(255,255,255,.08); border-radius:8px; padding:10px; font-size:13px; }
-  .slot .slotName{ font-weight:600; margin-bottom:6px; color:var(--accent); font-size:12px; }
+  .slotCol{ background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); border-radius:8px; padding:8px; }
+  .slotCol > h3{ margin:0 0 8px; font-size:13px; color:var(--accent); text-transform:uppercase; letter-spacing:.5px; }
+  .slotGrid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:6px; max-height:300px; overflow-y:auto; }
+  @media (max-width: 640px){ .slotGrid{ grid-template-columns: 1fr; max-height:250px; } }
+  .slot{ background:#0f1724; border:1px solid rgba(255,255,255,.08); border-radius:6px; padding:8px; font-size:11px; }
+  .slot .slotName{ font-weight:600; margin-bottom:4px; color:var(--accent); font-size:10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .slot input[type="file"]{ display:none; }
-  .slot .btn{ width:100%; margin-top:4px; padding:6px; font-size:12px; }
-  .slotActions{ display:flex; gap:4px; margin-top:6px; }
-  .slotActions button{ flex:1; padding:4px; font-size:11px; }
-  .checkRow{ display:flex; align-items:center; gap:6px; margin-top:4px; font-size:12px; }
+  .slot .btn{ width:100%; margin-top:3px; padding:4px; font-size:10px; }
+  .slotActions{ display:flex; gap:3px; margin-top:4px; }
+  .slotActions button{ flex:1; padding:3px; font-size:9px; }
+  .checkRow{ display:flex; align-items:center; gap:4px; margin-top:3px; font-size:10px; }
   .checkRow input[type="checkbox"]{ margin:0; }
   .loopSlot{ background:#1a1f2e; border-color:rgba(100,214,255,.15); }
-  .loopControls{ margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,.08); }
+  .loopControls{ margin-top:6px; padding-top:6px; border-top:1px solid rgba(255,255,255,.08); }
   .loopControls label{ display:block; }
+  .collapsible{ border:1px solid rgba(255,255,255,.08); border-radius:8px; margin:8px 0; }
+  .collapsible-header{ background:rgba(255,255,255,.05); padding:10px 12px; cursor:pointer; display:flex; justify-content:space-between; align-items:center; user-select:none; }
+  .collapsible-header:hover{ background:rgba(255,255,255,.08); }
+  .collapsible-content{ padding:12px; display:none; }
+  .collapsible.open .collapsible-content{ display:block; }
+  .collapsible-toggle{ font-size:14px; transition:transform .2s; }
+  .collapsible.open .collapsible-toggle{ transform:rotate(180deg); }
 `;
 
 export default function App(){
@@ -701,7 +725,7 @@ export default function App(){
   return (
     <div className="app" onMouseDown={ensureCtx} onTouchStart={(e)=>{ e.stopPropagation(); ensureCtx(); }}>
       <h1>BluesLooper</h1>
-      <div className="sub">Sequências de 12-bar blues + lead (Synth/Sampler/FX). <b>20 slots de guitarra</b>, <b>30 de bateria</b>, <b>30 de baixo</b> + <b>8 drum loops</b> e <b>8 bass loops</b>.</div>
+      <div className="sub">12-bar blues + lead (Synth/Sampler/FX) • 20 guitar, 30 drum, 30 bass slots • 8 drum + 8 bass loops</div>
 
       <div className="panel grid">
         <div>
@@ -734,8 +758,7 @@ export default function App(){
             </div>
           </div>
 
-          <div className="panel" style={{marginTop:14}}>
-            <h3 style={{marginTop:0}}>Lead Engine</h3>
+          <Collapsible title="Lead Engine" defaultOpen={false}>
             <div className="controls">
               <label>Motor de Lead
                 <select value={leadEngine} onChange={e=>setLeadEngine(e.target.value as LeadEngine)}>
@@ -763,10 +786,9 @@ export default function App(){
               <label>Drive<input type="range" min={0} max={200} step={1} value={synth.drive} onChange={e=>setSynth({...synth, drive: parseFloat(e.target.value)})} /></label>
               <label>Glide<input type="range" min={0} max={0.5} step={0.001} value={synth.glideSec} onChange={e=>setSynth({...synth, glideSec: parseFloat(e.target.value)})} /></label>
             </div>
-          </div>
+          </Collapsible>
 
-          <div className="panel" style={{marginTop:14}}>
-            <h3 style={{marginTop:0}}>FX Lead</h3>
+          <Collapsible title="FX Lead" defaultOpen={false}>
             <div className="controls">
               <label>Delay Time<input type="range" min={0.01} max={1} step={0.01} value={delayTime} onChange={e=>setDelayTime(parseFloat(e.target.value))} /></label>
               <label>Delay Feedback<input type="range" min={0} max={0.9} step={0.01} value={delayFeedback} onChange={e=>setDelayFeedback(parseFloat(e.target.value))} /></label>
@@ -774,12 +796,11 @@ export default function App(){
               <label>Reverb Sec<input type="range" min={0.2} max={4} step={0.1} value={reverbSec} onChange={e=>setReverbSec(parseFloat(e.target.value))} /></label>
               <label>Reverb Mix<input type="range" min={0} max={1} step={0.01} value={reverbMix} onChange={e=>setReverbMix(parseFloat(e.target.value))} /></label>
             </div>
-          </div>
+          </Collapsible>
         </div>
       </div>
 
-      <div className="panel">
-        <h2>Slots de Samples</h2>
+      <Collapsible title="Slots de Samples" defaultOpen={false}>
         <div className="slots">
           <div className="slotCol">
             <h3>Guitarra (Lead)</h3>
@@ -837,11 +858,10 @@ export default function App(){
             </div>
           </div>
         </div>
-      </div>
+      </Collapsible>
 
-      <div className="panel">
-        <h2>Loops Contínuos</h2>
-        <div className="sub">Loops que tocam continuamente quando o sequenciador está rodando</div>
+      <Collapsible title="Loops Contínuos" defaultOpen={false}>
+        <div className="sub" style={{marginTop:8}}>Loops que tocam continuamente quando o sequenciador está rodando</div>
         <div className="slots" style={{gridTemplateColumns:'repeat(2, 1fr)'}}>
           <div className="slotCol">
             <h3>Drum Loops</h3>
@@ -911,7 +931,7 @@ export default function App(){
             </div>
           </div>
         </div>
-      </div>
+      </Collapsible>
     </div>
   );
 }
