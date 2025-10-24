@@ -1,21 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-/**
- * BluesLooper — App.tsx (Slots de Samples)
- * -------------------------------------------------------------------------
- * Mantém todo o app (sequenciador + teclado + synth/sampler + FX)
- * e adiciona:
- *  - 20 slots de GUITARRA (para o motor Sampler do lead)
- *  - 30 slots de DRUM KITS (amostras individuais para kick/snare/hat)
- *  - 30 slots de BAIXO (reservado para futuras variações)
- *  - Pré‑escuta (Play/Stop) por slot
- *  - Seleção de slots que compõem o banco ativo do lead (multi‑amostras)
- *  - Atribuição de slots de bateria para Kick/Snare/Hi‑Hat (substitui o drum synth)
- */
-
-/*********************************
- * Utils musicais
- *********************************/
 const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"] as const;
 
 type PitchClass = 0|1|2|3|4|5|6|7|8|9|10|11;
@@ -60,9 +44,6 @@ function bluesScalePitchesForChord(ch: Chord): Set<number> {
 function pcToName(pc: PitchClass): string { return NOTE_NAMES[pc]; }
 function midiToFreq(midi: number) { return 440 * Math.pow(2, (midi - 69) / 12); }
 
-/*********************************
- * Sequências (20 variantes)
- *********************************/
 const SEQUENCES: { id: string; title: string; key: PitchClass; variation: "basic"|"quickChange"|"turnaroundV"|"minorBlues"; groove: "shuffle"|"swing"|"straight"|"slow" }[] = [
   {id:"C1", title:"C Blues — Shuffle", key:0, variation:"basic", groove:"shuffle"},
   {id:"C2", title:"C Blues — Quick Change", key:0, variation:"quickChange", groove:"shuffle"},
@@ -90,10 +71,6 @@ function sequenceBars(seqId: string): Bar[] {
   return make12Bar(seq.key, seq.variation);
 }
 
-/*********************************
- * Áudio (WebAudio)
- *********************************/
-
 type Mixer = {
   ctx: AudioContext,
   master: GainNode,
@@ -101,7 +78,6 @@ type Mixer = {
   bassBus: GainNode,
   guitarBus: GainNode,
   leadBus: GainNode,
-  // FX lead
   leadIn: GainNode,
   leadDry: GainNode,
   leadWet: GainNode,
@@ -152,11 +128,15 @@ function createMixer(): Mixer {
   return { ctx, master, drumBus, bassBus, guitarBus, leadBus, leadIn, leadDry, leadWet, delay, delayFB, delayWet, reverb, reverbWet };
 }
 
-/************** Drum Synth & Sample Playback **************/
-function playBufferOnce(m: Mixer, buffer: AudioBuffer, dest: AudioNode, time:number, vol=1){
-  const src = m.ctx.createBufferSource(); src.buffer = buffer;
-  const g = m.ctx.createGain(); g.gain.value = vol;
-  src.connect(g).connect(dest); src.start(time); src.stop(time + buffer.duration + 0.01);
+function playBufferOnce(m: Mixer, buffer: AudioBuffer, dest: AudioNode, time:number, vol=1, detuneCents=0){
+  const src = m.ctx.createBufferSource();
+  src.buffer = buffer;
+  src.detune.value = detuneCents;
+  const g = m.ctx.createGain();
+  g.gain.value = vol;
+  src.connect(g).connect(dest);
+  src.start(time);
+  src.stop(time + buffer.duration + 0.01);
 }
 
 function playKickSynth(m: Mixer, time: number, vol=1) {
@@ -197,7 +177,6 @@ function playHatSynth(m: Mixer, time: number, vol=1, closed=true) {
   noise.start(time); noise.stop(time + dur + 0.02);
 }
 
-/************** Bass Synth **************/
 function playBassNote(m: Mixer, midi: number, time: number, length=0.45, vol=0.9) {
   const { ctx, bassBus } = m;
   const osc = ctx.createOscillator(); const gain = ctx.createGain();
@@ -210,8 +189,7 @@ function playBassNote(m: Mixer, midi: number, time: number, length=0.45, vol=0.9
   osc.start(time); osc.stop(time + length + 0.02);
 }
 
-/************** Guitar Comp **************/
-function playGuitarChord(m: Mixer, rootMidi: number, quality: "7", time: number, vol=0.6) {
+function playGuitarChord(m: Mixer, rootMidi: number, _quality: "7", time: number, vol=0.6) {
   const { ctx, guitarBus } = m;
   const pcs = [0,4,7,10];
   const notes = pcs.map(semi => rootMidi + semi);
@@ -228,10 +206,6 @@ function playGuitarChord(m: Mixer, rootMidi: number, quality: "7", time: number,
     osc.start(t); osc.stop(t + 0.4);
   });
 }
-
-/*********************************
- * Lead Engines (Synth & Sampler)
- *********************************/
 
 type ADSR = { attack: number; decay: number; sustain: number; release: number };
 
@@ -282,8 +256,10 @@ class SamplerVoice {
   src: AudioBufferSourceNode; vca: GainNode; ctx: AudioContext; adsr: ADSR;
   constructor(ctx: AudioContext, dest: AudioNode, buffer: AudioBuffer, midi:number, rootMidi:number, adsr:ADSR){
     this.ctx = ctx; this.adsr = adsr;
-    this.src = ctx.createBufferSource(); this.src.buffer = buffer;
-    const rate = Math.pow(2, (midi - rootMidi)/12); this.src.playbackRate.value = rate;
+    this.src = ctx.createBufferSource();
+    this.src.buffer = buffer;
+    const cents = (midi - rootMidi) * 100;
+    this.src.detune.value = cents;
     this.vca = ctx.createGain(); this.vca.gain.value = 0.0;
     this.src.connect(this.vca).connect(dest);
     const now = ctx.currentTime; const a=adsr.attack, d=adsr.decay, s=Math.max(0, Math.min(1, adsr.sustain));
@@ -296,10 +272,6 @@ class SamplerVoice {
 }
 
 async function decodeFileToBuffer(ctx: AudioContext, file: File): Promise<AudioBuffer> { const arrBuf = await file.arrayBuffer(); return await ctx.decodeAudioData(arrBuf.slice(0)); }
-
-/*********************************
- * Sequenciador (transport)
- *********************************/
 
 type Transport = { isPlaying: boolean, tempo: number, step: number, barIndex: number, nextTickTime: number };
 
@@ -314,8 +286,7 @@ function useTransport(mixerRef: React.MutableRefObject<Mixer|null>, currentSeqId
   useEffect(()=>{
     let tempo = 100; if (seqMeta?.groove === "slow") tempo = 70; else if (seqMeta?.groove === "swing") tempo = 110; else if (seqMeta?.groove === "straight") tempo = 105;
     setT(prev=>({...prev, tempo})); stateRef.current.tempo = tempo;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSeqId]);
+  }, [currentSeqId, seqMeta]);
 
   useEffect(()=>{ stateRef.current.tempo = t.tempo; }, [t.tempo]);
 
@@ -330,7 +301,6 @@ function useTransport(mixerRef: React.MutableRefObject<Mixer|null>, currentSeqId
     const bar = bars[s.barIndex % bars.length]; const chord = bar.chord;
     const stepInBeat = s.step % 4; const beat = Math.floor(s.step/4); const beatPos = beat;
 
-    // DRUMS: usa sample se atribuído, senão synth
     const kickBuf = drumAssign.kick!=null ? drumBank[drumAssign.kick] : null;
     const snareBuf = drumAssign.snare!=null ? drumBank[drumAssign.snare] : null;
     const hatBuf = drumAssign.hat!=null ? drumBank[drumAssign.hat] : null;
@@ -339,13 +309,10 @@ function useTransport(mixerRef: React.MutableRefObject<Mixer|null>, currentSeqId
     if (stepInBeat===0 && (beatPos===0 || beatPos===2)) { if (kickBuf) playBufferOnce(m, kickBuf, m.drumBus, time, volumes.drum); else playKickSynth(m, time, volumes.drum); }
     if (stepInBeat===0 && (beatPos===1 || beatPos===3)) { if (snareBuf) playBufferOnce(m, snareBuf, m.drumBus, time, volumes.drum); else playSnareSynth(m, time, volumes.drum); }
 
-    // BASS walking (sintético por enquanto)
     if (stepInBeat===0) { const rootMidi = 36 + chord.root; const walk = [0,7,10,12]; const note = rootMidi + walk[beatPos % walk.length]; playBassNote(m, note, time, secondsPerBeat*0.9, volumes.bass); }
 
-    // GUITAR comp (sintético por enquanto)
     if (stepInBeat===0 && (beatPos===1 || beatPos===3)) { const rootMidi = 48 + chord.root; playGuitarChord(m, rootMidi, "7", time, volumes.guitar); }
 
-    // avanço
     const nextStep = (s.step + 1) % 16; let nextBar = s.barIndex; if (nextStep === 0) nextBar = (nextBar + 1) % bars.length;
     stateRef.current = { isPlaying:true, tempo:s.tempo, step:nextStep, barIndex:nextBar, nextTickTime: time + stepDur };
     setT(stateRef.current);
@@ -362,11 +329,7 @@ function useTransport(mixerRef: React.MutableRefObject<Mixer|null>, currentSeqId
   return { t, setT, start, stop, bars };
 }
 
-/*********************************
- * UI — Teclado (Stylophone + Polifonia + QWERTY)
- *********************************/
-
-const KEYBOARD_RANGE = { firstMidi: 60, lastMidi: 84 }; // C4..C6
+const KEYBOARD_RANGE = { firstMidi: 60, lastMidi: 84 };
 
 type LeadEngine = "synth" | "sampler";
 
@@ -380,22 +343,20 @@ function quantizeMidiToSet(midi:number, allowed:Set<number>): number {
   let up = midi, down = midi; for(let i=1;i<=6;i++){ if (allowed.has((pc+i)%12)) { up = midi + i; break; } } for(let i=1;i<=6;i++){ if (allowed.has((pc+12-i)%12)) { down = midi - i; break; } } return (Math.abs(up-midi) < Math.abs(midi-down)) ? up : down;
 }
 
-// QWERTY mapping (base C4)
 const WHITE_KEYS = ['q','w','e','r','t','y','u','i','o'];
 const WHITE_OFFS = [0,2,4,5,7,9,11,12,14];
 const BLACK_KEYS = ['2','3','5','6','7'];
 const BLACK_OFFS = [1,3,6,8,10];
-const BASE_MIDI = 60; // C4
+const BASE_MIDI = 60;
 
 function Piano({ mixerRef, highlightPCs, disabled, leadEngine, synthSettings, sampleBank, sampleRootFallback, maxVoices, quantize }:{
   mixerRef: React.MutableRefObject<Mixer|null>, highlightPCs: Set<number>, disabled?: boolean,
   leadEngine: LeadEngine, synthSettings: SynthSettings, sampleBank: SampleBank, sampleRootFallback: number, maxVoices: number, quantize:boolean
 }){
   const keys: number[] = []; for (let m = KEYBOARD_RANGE.firstMidi; m <= KEYBOARD_RANGE.lastMidi; m++) keys.push(m);
-  const activeVoices = useRef<Map<number, SynthVoice|SamplerVoice>>(new Map()); // pointerId -> voice
-  const keyVoices = useRef<Map<string, SynthVoice|SamplerVoice>>(new Map()); // teclado -> voz
+  const activeVoices = useRef<Map<number, SynthVoice|SamplerVoice>>(new Map());
+  const keyVoices = useRef<Map<string, SynthVoice|SamplerVoice>>(new Map());
 
-  // Watchdog global (mobile multitouch)
   useEffect(()=>{
     function up(ev: PointerEvent){ const id = (ev as any).pointerId; if (typeof id === 'number') { const v = activeVoices.current.get(id); if (v){ v.stop(); activeVoices.current.delete(id); } } }
     window.addEventListener('pointerup', up, {capture:true});
@@ -410,7 +371,6 @@ function Piano({ mixerRef, highlightPCs, disabled, leadEngine, synthSettings, sa
     return null;
   }
 
-  // Teclado físico polifônico
   useEffect(()=>{
     function onKeyDown(e: KeyboardEvent){
       if (disabled) return; const map = midiFromKey(e.key); if (!map) return; if (e.repeat) return;
@@ -426,7 +386,7 @@ function Piano({ mixerRef, highlightPCs, disabled, leadEngine, synthSettings, sa
     function onKeyUp(e: KeyboardEvent){ const map = midiFromKey(e.key); if (!map) return; const v = keyVoices.current.get(map.label); if (!v) return; v.stop(); keyVoices.current.delete(map.label); }
     window.addEventListener('keydown', onKeyDown); window.addEventListener('keyup', onKeyUp);
     return ()=>{ window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); };
-  }, [disabled, leadEngine, synthSettings, sampleBank, sampleRootFallback, maxVoices, quantize, highlightPCs]);
+  }, [disabled, leadEngine, synthSettings, sampleBank, sampleRootFallback, maxVoices, quantize, highlightPCs, mixerRef]);
 
   function startPointer(pointerId:number, midi:number){
     const m = mixerRef.current; if (!m) return; if (activeVoices.current.size + keyVoices.current.size >= maxVoices) return;
@@ -468,9 +428,18 @@ function Piano({ mixerRef, highlightPCs, disabled, leadEngine, synthSettings, sa
   );
 }
 
-/*********************************
- * Estilo
- *********************************/
+function Strip({name, value, onChange, muted, onToggleMute}: {name:string; value:number; onChange:(v:number)=>void; muted:boolean; onToggleMute:()=>void}){
+  return (
+    <div className="strip">
+      <h3>{name}</h3>
+      <input type="range" className="vol" min={0} max={1} step={0.01} value={value} onChange={e=>onChange(parseFloat(e.target.value))} />
+      <div className="muterow">
+        <button className="btn" onClick={onToggleMute}>{muted?'Unmute':'Mute'}</button>
+      </div>
+    </div>
+  );
+}
+
 const CSS = `
   :root{ --bg:#0a0f14; --card:#0f1a28; --ink:#e9f2ff; --muted:#a9b9d2; --accent:#64d6ff; --good:#8CFF98; --danger:#ff5c7a; }
   *{ box-sizing:border-box }
@@ -482,7 +451,6 @@ const CSS = `
   .panel{ background:linear-gradient(180deg, rgba(22,31,48,.9), rgba(13,19,31,.9)); border:1px solid rgba(255,255,255,.08); box-shadow:0 20px 50px rgba(0,0,0,.25) inset, 0 8px 30px rgba(0,0,0,.35); border-radius:18px; padding:16px; margin:14px 0 }
   .row{ display:flex; flex-wrap:wrap; gap:12px; align-items:center }
   select, input[type="range"], input[type="number"], input[type="text"]{ width:220px }
-  /* TECLADO FIXO + sem scroll durante o deslize */
   .kbdDock{ }
   @media (max-width: 760px){ .kbdDock{ position: sticky; bottom: 8px; z-index: 20; } }
   .keyboard{ user-select:none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; display:flex; gap:2px; padding:8px; background:#08101a; border-radius:16px; border:1px solid rgba(255,255,255,.06); box-shadow: inset 0 10px 30px rgba(0,0,0,.35) }
@@ -502,20 +470,28 @@ const CSS = `
   .btn.stop{ background: linear-gradient(180deg,#ff6d6d,#b81616) }
   .grid{ display:grid; grid-template-columns: 1.2fr .8fr; gap:16px }
   .controls{ display:grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap:10px }
+  .controls label{ display:flex; flex-direction:column; font-size:13px; color:var(--muted) }
   .slots{ display:grid; grid-template-columns: repeat(3, 1fr); gap:14px }
   .slotCol{ background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:12px }
   .slotGrid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:10px }
-  .slot{ background:#0f1724; border:1px solid rgba(255,255,
+  .slot{ background:#0f1724; border:1px solid rgba(255,255,255,.08); border-radius:8px; padding:10px; font-size:13px }
+  .slot .slotName{ font-weight:600; margin-bottom:6px; color:var(--accent) }
+  .slot input[type="file"]{ display:none }
+  .slot .btn{ width:100%; margin-top:4px; padding:6px; font-size:12px }
+  .slotActions{ display:flex; gap:4px; margin-top:6px }
+  .slotActions button{ flex:1; padding:4px; font-size:11px }
+  input[type="number"]{ width:80px }
+  .checkRow{ display:flex; align-items:center; gap:6px; margin-top:4px }
+`;
 
-/*********************************
- * App
- *********************************/
 export default function App(){
   const [seqId, setSeqId] = useState<string>(SEQUENCES[0].id);
   const [tempo, setTempo] = useState<number>(100);
   const [volumes, setVolumes] = useState({drum:1, bass:0.9, guitar:0.8, lead:1});
   const [mutes, setMutes] = useState({drum:false, bass:false, guitar:false});
   const [ctxReady, setCtxReady] = useState(false);
+  const [quantize, setQuantize] = useState(true);
+  const [maxVoices, setMaxVoices] = useState(8);
 
   const [leadEngine, setLeadEngine] = useState<LeadEngine>("synth");
   const [synth, setSynth] = useState<SynthSettings>({
@@ -527,7 +503,6 @@ export default function App(){
   useEffect(()=>{ const style = document.createElement('style'); style.innerHTML = CSS; document.head.appendChild(style); return ()=>{ style.remove(); }; },[]);
   function ensureCtx(){ if (!mixerRef.current){ const m = createMixer(); m.master.gain.value = 0.9; mixerRef.current = m; setCtxReady(true);} }
 
-  // FX params
   const [delayTime, setDelayTime] = useState<number>(0.28);
   const [delayFeedback, setDelayFeedback] = useState<number>(0.30);
   const [delayMix, setDelayMix] = useState<number>(0.25);
@@ -538,23 +513,19 @@ export default function App(){
   useEffect(()=>{ const m = mixerRef.current; if(!m) return; m.delay.delayTime.value = delayTime; m.delayFB.gain.value = delayFeedback; m.delayWet.gain.value = delayMix; m.reverbWet.gain.value = reverbMix; }, [delayTime, delayFeedback, delayMix, reverbMix]);
   useEffect(()=>{ const m = mixerRef.current; if(!m) return; m.reverb.buffer = createImpulseResponse(m.ctx, reverbSec); }, [reverbSec]);
 
-  /********* Slots de Samples *********/
   type Slot = { name:string; buffer:AudioBuffer|null; root?:number; selected?:boolean };
-  const [guitarSlots, setGuitarSlots] = useState<Slot[]>(Array.from({length:20}, (_,i)=>({name:`Guitar ${i+1}`, buffer:null, root:64, selected:false})));
-  const [drumSlots, setDrumSlots] = useState<Slot[]>(Array.from({length:30}, (_,i)=>({name:`Drum ${i+1}`, buffer:null})));
-  const [bassSlots, setBassSlots] = useState<Slot[]>(Array.from({length:30}, (_,i)=>({name:`Bass ${i+1}`, buffer:null, root:40})));
+  const [guitarSlots, setGuitarSlots] = useState<Slot[]>(Array.from({length:20}, (_,i)=>({name:'Guitar '+(i+1), buffer:null, root:64, selected:false})));
+  const [drumSlots, setDrumSlots] = useState<Slot[]>(Array.from({length:30}, (_,i)=>({name:'Drum '+(i+1), buffer:null})));
+  const [bassSlots, setBassSlots] = useState<Slot[]>(Array.from({length:30}, (_,i)=>({name:'Bass '+(i+1), buffer:null, root:40})));
 
-  // Atribuição de bateria
   const [drumAssign, setDrumAssign] = useState<{kick:number|null; snare:number|null; hat:number|null}>({kick:null, snare:null, hat:null});
 
-  // Banco de samples do lead (multi a partir dos slots marcados)
   const sampleBank = useMemo(()=>{
     const m: SampleBank = { buffers: [], roots: [] };
     guitarSlots.forEach(s=>{ if (s.selected && s.buffer){ m.buffers.push(s.buffer); m.roots.push((s.root ?? 64)|0); } });
     return m;
   }, [guitarSlots]);
 
-  // Decodificar arquivo num slot
   async function loadIntoSlot(file: File, kind: 'guitar'|'drum'|'bass', index:number){
     ensureCtx(); const ctx = mixerRef.current!.ctx; const buf = await decodeFileToBuffer(ctx, file);
     if (kind==='guitar'){ setGuitarSlots(prev=>{ const p=[...prev]; p[index] = {...p[index], name:file.name, buffer:buf}; return p; }); }
@@ -568,31 +539,34 @@ export default function App(){
     else setBassSlots(prev=>{ const p=[...prev]; p[index]={...p[index], buffer:null}; return p; });
   }
 
-  // Pré‑escuta
-  function audition(kind:'guitar'|'drum'|'bass', index:number){ const m=mixerRef.current; if(!m) return; const slot=(kind==='guitar'?guitarSlots:kind==='drum'?drumSlots:bassSlots)[index]; if(!slot?.buffer) return; playBufferOnce(m, slot.buffer, kind==='guitar'? m.leadBus : kind==='drum'? m.drumBus : m.bassBus, m.ctx.currentTime+0.01, 1); }
+  function audition(kind:'guitar'|'drum'|'bass', index:number){
+    const m=mixerRef.current;
+    if(!m) return;
+    const slot=(kind==='guitar'?guitarSlots:kind==='drum'?drumSlots:bassSlots)[index];
+    if(!slot?.buffer) return;
+    playBufferOnce(m, slot.buffer, kind==='guitar'? m.leadBus : kind==='drum'? m.drumBus : m.bassBus, m.ctx.currentTime+0.01, 1);
+  }
 
-  // Transport (usa drumAssign + drumSlots para samples)
   const drumBank = useMemo(()=> drumSlots.map(s=> s.buffer ?? null), [drumSlots]);
   const { t, setT, start, stop, bars } = useTransport(mixerRef, seqId, {drum: mutes.drum?0:volumes.drum, bass:mutes.bass?0:volumes.bass, guitar:mutes.guitar?0:volumes.guitar}, drumAssign, drumBank);
 
-  useEffect(()=>{ setT(prev=>({...prev, tempo})) }, [tempo]);
+  useEffect(()=>{ setT(prev=>({...prev, tempo})) }, [tempo, setT]);
 
   const currentChord = bars[t.barIndex % bars.length]?.chord || {root:0, qual:"7" as const};
   const highlightPCs = useMemo(()=> bluesScalePitchesForChord(currentChord), [currentChord]);
 
-  // DEV TESTS
   useEffect(()=>{
     try {
-      console.assert(bars.length === 12, `Esperava 12 compassos, obtive ${bars.length}`);
-      console.assert(highlightPCs.size === 6, `Escala de blues deve ter 6 notas, obtive ${highlightPCs.size}`);
+      console.assert(bars.length === 12, 'Esperava 12 compassos, obtive '+bars.length);
+      console.assert(highlightPCs.size === 6, 'Escala de blues deve ter 6 notas, obtive '+highlightPCs.size);
       const ids = new Set(SEQUENCES.map(s=>s.id)); console.assert(ids.size === SEQUENCES.length, 'IDs de SEQUENCES devem ser únicos');
-    } catch (e) { /* no-op */ }
+    } catch (e) {}
   }, [bars, highlightPCs]);
 
   return (
     <div className="app" onMouseDown={ensureCtx} onTouchStart={(e)=>{ e.stopPropagation(); ensureCtx(); }}>
       <h1>BluesLooper</h1>
-      <div className="sub">Sequências de 12‑bar blues + lead (Synth/Sampler/FX). Agora com <b>20 slots de guitarra</b>, <b>30 de bateria</b> e <b>30 de baixo</b>.</div>
+      <div className="sub">Sequências de 12-bar blues + lead (Synth/Sampler/FX). Agora com <b>20 slots de guitarra</b>, <b>30 de bateria</b> e <b>30 de baixo</b>.</div>
 
       <div className="panel grid">
         <div>
@@ -600,7 +574,7 @@ export default function App(){
             <select value={seqId} onChange={e=>setSeqId(e.target.value)} onFocus={ensureCtx}>{SEQUENCES.map(s=> <option key={s.id} value={s.id}>{s.title}</option>)}</select>
             <label>Tempo: {tempo} bpm</label>
             <input type="range" min={60} max={160} value={tempo} onChange={e=>setTempo(parseInt(e.target.value))} onMouseDown={ensureCtx} />
-            {!t.isPlaying ? (<button className="btn primary" onClick={()=>{ ensureCtx(); start(); }}>▶️ Play</button>):(<button className="btn stop" onClick={stop}>⏹ Stop</button>)}
+            {!t.isPlaying ? (<button className="btn primary" onClick={()=>{ ensureCtx(); start(); }}>Play</button>):(<button className="btn stop" onClick={stop}>Stop</button>)}
           </div>
 
           <div className="panel" style={{marginTop:14}}>
@@ -608,7 +582,9 @@ export default function App(){
               <div>Compasso: <strong>{(t.barIndex%bars.length)+1}</strong> / {bars.length}</div>
               <div>Acorde: <strong>{pcToName(currentChord.root)}{currentChord.qual}</strong></div>
             </div>
-            <div className="kbdDock">$0</div>
+            <div className="kbdDock">
+              <Piano mixerRef={mixerRef} highlightPCs={highlightPCs} disabled={!ctxReady} leadEngine={leadEngine} synthSettings={synth} sampleBank={sampleBank} sampleRootFallback={64} maxVoices={maxVoices} quantize={quantize} />
+            </div>
           </div>
         </div>
 
@@ -624,13 +600,19 @@ export default function App(){
           </div>
 
           <div className="panel" style={{marginTop:14}}>
-            <h3 style={{marginTop:0}}>Lead Engine & Controles</h3>
+            <h3 style={{marginTop:0}}>Lead Engine</h3>
             <div className="controls">
               <label>Motor de Lead
                 <select value={leadEngine} onChange={e=>setLeadEngine(e.target.value as LeadEngine)}>
-                  <option value="synth">Synth (controlável)</option>
-                  <option value="sampler">Sampler (multi‑amostras via slots)</option>
+                  <option value="synth">Synth</option>
+                  <option value="sampler">Sampler</option>
                 </select>
+              </label>
+              <label>
+                <input type="checkbox" checked={quantize} onChange={e=>setQuantize(e.target.checked)} /> Quantizar para escala blues
+              </label>
+              <label>Max Vozes
+                <input type="number" min={1} max={16} value={maxVoices} onChange={e=>setMaxVoices(parseInt(e.target.value)||1)} />
               </label>
               <label>Wave A
                 <select value={synth.waveA} onChange={e=>setSynth({...synth, waveA:e.target.value})}><option>sine</option><option>triangle</option><option>square</option><option>sawtooth</option></select>
@@ -642,4 +624,85 @@ export default function App(){
               <label>Mix B<input type="range" min={0} max={1} step={0.01} value={synth.mixB} onChange={e=>setSynth({...synth, mixB: parseFloat(e.target.value)})} /></label>
               <label>Detune<input type="range" min={-0.5} max={0.5} step={0.01} value={synth.detune} onChange={e=>setSynth({...synth, detune: parseFloat(e.target.value)})} /></label>
               <label>Cutoff<input type="range" min={200} max={8000} step={1} value={synth.cutoff} onChange={e=>setSynth({...synth, cutoff: parseFloat(e.target.value)})} /></label>
-              <label>Resonância<input type="range" min
+              <label>Resonância<input type="range" min={0.1} max={10} step={0.1} value={synth.resonance} onChange={e=>setSynth({...synth, resonance: parseFloat(e.target.value)})} /></label>
+              <label>Drive<input type="range" min={0} max={200} step={1} value={synth.drive} onChange={e=>setSynth({...synth, drive: parseFloat(e.target.value)})} /></label>
+              <label>Glide<input type="range" min={0} max={0.5} step={0.001} value={synth.glideSec} onChange={e=>setSynth({...synth, glideSec: parseFloat(e.target.value)})} /></label>
+            </div>
+          </div>
+
+          <div className="panel" style={{marginTop:14}}>
+            <h3 style={{marginTop:0}}>FX Lead</h3>
+            <div className="controls">
+              <label>Delay Time<input type="range" min={0.01} max={1} step={0.01} value={delayTime} onChange={e=>setDelayTime(parseFloat(e.target.value))} /></label>
+              <label>Delay Feedback<input type="range" min={0} max={0.9} step={0.01} value={delayFeedback} onChange={e=>setDelayFeedback(parseFloat(e.target.value))} /></label>
+              <label>Delay Mix<input type="range" min={0} max={1} step={0.01} value={delayMix} onChange={e=>setDelayMix(parseFloat(e.target.value))} /></label>
+              <label>Reverb Sec<input type="range" min={0.2} max={4} step={0.1} value={reverbSec} onChange={e=>setReverbSec(parseFloat(e.target.value))} /></label>
+              <label>Reverb Mix<input type="range" min={0} max={1} step={0.01} value={reverbMix} onChange={e=>setReverbMix(parseFloat(e.target.value))} /></label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <h2>Slots de Samples</h2>
+        <div className="slots">
+          <div className="slotCol">
+            <h3>Guitarra (Lead)</h3>
+            <div className="slotGrid">
+              {guitarSlots.map((slot, i)=>(
+                <div key={i} className="slot">
+                  <div className="slotName">{slot.name}</div>
+                  {slot.buffer && <div>Root: <input type="number" min={0} max={127} value={slot.root||64} onChange={e=>setGuitarSlots(prev=>{const p=[...prev]; p[i]={...p[i], root:parseInt(e.target.value)||64}; return p;})} /></div>}
+                  <input type="file" id={'g'+i} accept="audio/*" onChange={e=>e.target.files?.[0] && loadIntoSlot(e.target.files[0], 'guitar', i)} />
+                  <label htmlFor={'g'+i} className="btn">{slot.buffer?'Replace':'Load'}</label>
+                  <div className="slotActions">
+                    {slot.buffer && <><button className="btn" onClick={()=>audition('guitar', i)}>Play</button><button className="btn" onClick={()=>clearSlot('guitar', i)}>Clear</button></>}
+                  </div>
+                  {slot.buffer && <div className="checkRow"><input type="checkbox" checked={!!slot.selected} onChange={e=>setGuitarSlots(prev=>{const p=[...prev]; p[i]={...p[i], selected:e.target.checked}; return p;})} /> <span>Use in bank</span></div>}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="slotCol">
+            <h3>Bateria</h3>
+            <div style={{marginBottom:12}}>
+              <label>Kick: <select value={drumAssign.kick??''} onChange={e=>setDrumAssign({...drumAssign, kick:e.target.value?parseInt(e.target.value):null})}><option value="">Synth</option>{drumSlots.map((s,i)=>s.buffer&&<option key={i} value={i}>{s.name}</option>)}</select></label>
+              <label>Snare: <select value={drumAssign.snare??''} onChange={e=>setDrumAssign({...drumAssign, snare:e.target.value?parseInt(e.target.value):null})}><option value="">Synth</option>{drumSlots.map((s,i)=>s.buffer&&<option key={i} value={i}>{s.name}</option>)}</select></label>
+              <label>Hat: <select value={drumAssign.hat??''} onChange={e=>setDrumAssign({...drumAssign, hat:e.target.value?parseInt(e.target.value):null})}><option value="">Synth</option>{drumSlots.map((s,i)=>s.buffer&&<option key={i} value={i}>{s.name}</option>)}</select></label>
+            </div>
+            <div className="slotGrid">
+              {drumSlots.map((slot, i)=>(
+                <div key={i} className="slot">
+                  <div className="slotName">{slot.name}</div>
+                  <input type="file" id={'d'+i} accept="audio/*" onChange={e=>e.target.files?.[0] && loadIntoSlot(e.target.files[0], 'drum', i)} />
+                  <label htmlFor={'d'+i} className="btn">{slot.buffer?'Replace':'Load'}</label>
+                  <div className="slotActions">
+                    {slot.buffer && <><button className="btn" onClick={()=>audition('drum', i)}>Play</button><button className="btn" onClick={()=>clearSlot('drum', i)}>Clear</button></>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="slotCol">
+            <h3>Baixo</h3>
+            <div className="slotGrid">
+              {bassSlots.map((slot, i)=>(
+                <div key={i} className="slot">
+                  <div className="slotName">{slot.name}</div>
+                  {slot.buffer && <div>Root: <input type="number" min={0} max={127} value={slot.root||40} onChange={e=>setBassSlots(prev=>{const p=[...prev]; p[i]={...p[i], root:parseInt(e.target.value)||40}; return p;})} /></div>}
+                  <input type="file" id={'b'+i} accept="audio/*" onChange={e=>e.target.files?.[0] && loadIntoSlot(e.target.files[0], 'bass', i)} />
+                  <label htmlFor={'b'+i} className="btn">{slot.buffer?'Replace':'Load'}</label>
+                  <div className="slotActions">
+                    {slot.buffer && <><button className="btn" onClick={()=>audition('bass', i)}>Play</button><button className="btn" onClick={()=>clearSlot('bass', i)}>Clear</button></>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
