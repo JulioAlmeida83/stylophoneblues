@@ -535,11 +535,11 @@ export default function App(){
   const [drumSlots, setDrumSlots] = useState<Slot[]>(Array.from({length:30}, (_,i)=>({name:'Drum '+(i+1), buffer:null})));
   const [bassSlots, setBassSlots] = useState<Slot[]>(Array.from({length:30}, (_,i)=>({name:'Bass '+(i+1), buffer:null, root:40})));
 
-  type LoopSlot = { name:string; buffer:AudioBuffer|null; volume:number; enabled:boolean };
-  const [drumLoops, setDrumLoops] = useState<LoopSlot[]>(Array.from({length:8}, (_,i)=>({name:'Drum Loop '+(i+1), buffer:null, volume:0.8, enabled:false})));
-  const [bassLoops, setBassLoops] = useState<LoopSlot[]>(Array.from({length:8}, (_,i)=>({name:'Bass Loop '+(i+1), buffer:null, volume:0.7, enabled:false})));
+  type LoopSlot = { name:string; buffer:AudioBuffer|null; volume:number; enabled:boolean; bars:number };
+  const [drumLoops, setDrumLoops] = useState<LoopSlot[]>(Array.from({length:8}, (_,i)=>({name:'Drum Loop '+(i+1), buffer:null, volume:0.8, enabled:false, bars:4})));
+  const [bassLoops, setBassLoops] = useState<LoopSlot[]>(Array.from({length:8}, (_,i)=>({name:'Bass Loop '+(i+1), buffer:null, volume:0.7, enabled:false, bars:4})));
 
-  const activeLoopsRef = useRef<Map<string, AudioBufferSourceNode>>(new Map());
+  const activeLoopsRef = useRef<Map<string, {src: AudioBufferSourceNode; gain: GainNode}>>(new Map());
 
   const [drumAssign, setDrumAssign] = useState<{kick:number|null; snare:number|null; hat:number|null}>({kick:null, snare:null, hat:null});
 
@@ -580,35 +580,63 @@ export default function App(){
     playBufferOnce(m, slot.buffer, dest, m.ctx.currentTime+0.01, 1);
   }
 
-  function startLoop(kind: 'drumloop'|'bassloop', index:number){
+  function startLoop(kind: 'drumloop'|'bassloop', index:number, startTime?: number){
     const m=mixerRef.current;
     if(!m) return;
     const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
     if(!loop?.buffer || !loop.enabled) return;
     const key = kind+index;
     stopLoop(key);
+
+    const secondsPerBeat = 60 / tempo;
+    const loopDurationInBeats = loop.bars * 4;
+    const targetDuration = loopDurationInBeats * secondsPerBeat;
+    const playbackRate = loop.buffer.duration / targetDuration;
+
     const src = m.ctx.createBufferSource();
     src.buffer = loop.buffer;
     src.loop = true;
+    src.playbackRate.value = playbackRate;
+
     const gain = m.ctx.createGain();
     gain.gain.value = loop.volume;
     const dest = kind==='drumloop' ? m.drumBus : m.bassBus;
     src.connect(gain).connect(dest);
-    src.start(m.ctx.currentTime);
-    activeLoopsRef.current.set(key, src);
+
+    const when = startTime ?? m.ctx.currentTime;
+    src.start(when);
+    activeLoopsRef.current.set(key, {src, gain});
   }
 
   function stopLoop(key: string){
-    const src = activeLoopsRef.current.get(key);
-    if(src){
-      try { src.stop(); } catch(e){}
+    const node = activeLoopsRef.current.get(key);
+    if(node){
+      try { node.src.stop(); } catch(e){}
       activeLoopsRef.current.delete(key);
     }
   }
 
+  function updateActiveLoopVolume(key: string, volume: number){
+    const node = activeLoopsRef.current.get(key);
+    if(node) node.gain.gain.value = volume;
+  }
+
   function updateLoopVolume(kind: 'drumloop'|'bassloop', index:number, volume:number){
+    const key = kind+index;
+    updateActiveLoopVolume(key, volume);
     if(kind==='drumloop') setDrumLoops(prev=>{ const p=[...prev]; p[index]={...p[index], volume}; return p; });
     else setBassLoops(prev=>{ const p=[...prev]; p[index]={...p[index], volume}; return p; });
+  }
+
+  function updateLoopBars(kind: 'drumloop'|'bassloop', index:number, bars:number){
+    if(kind==='drumloop') setDrumLoops(prev=>{ const p=[...prev]; p[index]={...p[index], bars}; return p; });
+    else setBassLoops(prev=>{ const p=[...prev]; p[index]={...p[index], bars}; return p; });
+    const key = kind+index;
+    const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
+    if(t.isPlaying && loop.enabled){
+      stopLoop(key);
+      setTimeout(()=> startLoop(kind, index), 50);
+    }
   }
 
   function toggleLoop(kind: 'drumloop'|'bassloop', index:number){
@@ -619,7 +647,8 @@ export default function App(){
 
     const key = kind+index;
     if(newEnabled && t.isPlaying){
-      startLoop(kind, index);
+      const m=mixerRef.current;
+      if(m) startLoop(kind, index, t.nextTickTime || m.ctx.currentTime);
     } else {
       stopLoop(key);
     }
@@ -631,13 +660,32 @@ export default function App(){
   useEffect(()=>{ setT(prev=>({...prev, tempo})) }, [tempo, setT]);
 
   useEffect(()=>{
+    const m=mixerRef.current;
+    if(!m) return;
     if(t.isPlaying){
-      drumLoops.forEach((loop, i)=> { if(loop.enabled && loop.buffer) startLoop('drumloop', i); });
-      bassLoops.forEach((loop, i)=> { if(loop.enabled && loop.buffer) startLoop('bassloop', i); });
+      const startTime = t.nextTickTime || m.ctx.currentTime;
+      drumLoops.forEach((loop, i)=> { if(loop.enabled && loop.buffer) startLoop('drumloop', i, startTime); });
+      bassLoops.forEach((loop, i)=> { if(loop.enabled && loop.buffer) startLoop('bassloop', i, startTime); });
     } else {
       activeLoopsRef.current.forEach((_, key)=> stopLoop(key));
     }
   }, [t.isPlaying]);
+
+  useEffect(()=>{
+    if(t.isPlaying){
+      activeLoopsRef.current.forEach((_, key)=>{
+        const [kind, indexStr] = key.match(/(drumloop|bassloop)(\d+)/)?.slice(1) || [];
+        const index = parseInt(indexStr);
+        if(kind && !isNaN(index)){
+          const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
+          if(loop?.enabled){
+            stopLoop(key);
+            setTimeout(()=> startLoop(kind as 'drumloop'|'bassloop', index), 50);
+          }
+        }
+      });
+    }
+  }, [tempo]);
 
   const currentChord = bars[t.barIndex % bars.length]?.chord || {root:0, qual:"7" as const};
   const highlightPCs = useMemo(()=> bluesScalePitchesForChord(currentChord), [currentChord]);
@@ -814,6 +862,9 @@ export default function App(){
                           <input type="checkbox" checked={loop.enabled} onChange={()=>toggleLoop('drumloop', i)} />
                           <span>Enable Loop</span>
                         </label>
+                        <label style={{fontSize:'11px', marginTop:'6px', display:'block'}}>
+                          Bars: <input type="number" min={1} max={16} value={loop.bars} onChange={e=>updateLoopBars('drumloop', i, parseInt(e.target.value)||1)} style={{width:'50px'}} />
+                        </label>
                         <label style={{fontSize:'11px', marginTop:'6px'}}>
                           Vol: {loop.volume.toFixed(2)}
                           <input type="range" min={0} max={1} step={0.01} value={loop.volume} onChange={e=>updateLoopVolume('drumloop', i, parseFloat(e.target.value))} style={{width:'100%'}} />
@@ -844,6 +895,9 @@ export default function App(){
                         <label style={{fontSize:'12px', display:'flex', alignItems:'center', gap:'6px', marginTop:'8px'}}>
                           <input type="checkbox" checked={loop.enabled} onChange={()=>toggleLoop('bassloop', i)} />
                           <span>Enable Loop</span>
+                        </label>
+                        <label style={{fontSize:'11px', marginTop:'6px', display:'block'}}>
+                          Bars: <input type="number" min={1} max={16} value={loop.bars} onChange={e=>updateLoopBars('bassloop', i, parseInt(e.target.value)||1)} style={{width:'50px'}} />
                         </label>
                         <label style={{fontSize:'11px', marginTop:'6px'}}>
                           Vol: {loop.volume.toFixed(2)}
