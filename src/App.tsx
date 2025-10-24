@@ -622,6 +622,8 @@ export default function App(){
     const src = m.ctx.createBufferSource();
     src.buffer = loop.buffer;
     src.loop = true;
+    src.loopStart = 0;
+    src.loopEnd = loop.buffer.duration;
     src.playbackRate.value = playbackRate;
 
     const gain = m.ctx.createGain();
@@ -633,10 +635,10 @@ export default function App(){
     const isAlternative = (kind==='drumloop' && drumSource==='loops') || (kind==='bassloop' && bassSource==='loops');
     if(isAlternative && barIndex !== undefined){
       const barOffsetInLoop = barIndex % loop.bars;
-      const offsetTime = barOffsetInLoop * 4 * secondsPerBeat;
+      const offsetTime = (barOffsetInLoop * 4 * secondsPerBeat) % loop.buffer.duration;
       src.start(when, offsetTime);
     } else {
-      src.start(when);
+      src.start(when, 0);
     }
     activeLoopsRef.current.set(key, {src, gain, startTime: when});
   }
@@ -696,7 +698,7 @@ export default function App(){
     const m=mixerRef.current;
     if(!m) return;
     if(t.isPlaying){
-      const startTime = t.nextTickTime || m.ctx.currentTime;
+      const startTime = m.ctx.currentTime + 0.05;
       drumLoops.forEach((loop, i)=> { if(loop.enabled && loop.buffer) startLoop('drumloop', i, startTime, t.barIndex); });
       bassLoops.forEach((loop, i)=> { if(loop.enabled && loop.buffer) startLoop('bassloop', i, startTime, t.barIndex); });
     } else {
@@ -722,6 +724,8 @@ export default function App(){
 
   useEffect(()=>{
     if(t.isPlaying){
+      const m=mixerRef.current;
+      if(!m) return;
       activeLoopsRef.current.forEach((_, key)=>{
         const [kind, indexStr] = key.match(/(drumloop|bassloop)(\d+)/)?.slice(1) || [];
         const index = parseInt(indexStr);
@@ -729,12 +733,29 @@ export default function App(){
           const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
           if(loop?.enabled){
             stopLoop(key);
-            setTimeout(()=> startLoop(kind as 'drumloop'|'bassloop', index, undefined, t.barIndex), 50);
+            const startTime = m.ctx.currentTime + 0.05;
+            startLoop(kind as 'drumloop'|'bassloop', index, startTime, t.barIndex);
           }
         }
       });
     }
   }, [drumSource, bassSource]);
+
+  useEffect(()=>{
+    drumLoops.forEach((loop, i)=>{
+      const key = 'drumloop'+i;
+      const active = activeLoopsRef.current.get(key);
+      if(active) active.gain.gain.value = loop.volume;
+    });
+  }, [drumLoops]);
+
+  useEffect(()=>{
+    bassLoops.forEach((loop, i)=>{
+      const key = 'bassloop'+i;
+      const active = activeLoopsRef.current.get(key);
+      if(active) active.gain.gain.value = loop.volume;
+    });
+  }, [bassLoops]);
 
   const currentChord = bars[t.barIndex % bars.length]?.chord || {root:0, qual:"7" as const};
   const highlightPCs = useMemo(()=> bluesScalePitchesForChord(currentChord), [currentChord]);
