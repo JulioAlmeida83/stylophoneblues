@@ -442,46 +442,60 @@ function Strip({name, value, onChange, muted, onToggleMute}: {name:string; value
 
 const CSS = `
   :root{ --bg:#0a0f14; --card:#0f1a28; --ink:#e9f2ff; --muted:#a9b9d2; --accent:#64d6ff; --good:#8CFF98; --danger:#ff5c7a; }
-  *{ box-sizing:border-box }
+  *{ box-sizing:border-box; margin:0; padding:0; }
   html, body{ height:100%; }
   body{ margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; background:var(--bg); color:var(--ink); overscroll-behavior-y: none; }
-  .app{ max-width:1200px; margin:0 auto; padding:24px }
-  h1{ font-weight:800; margin:0 0 6px; letter-spacing:.5px }
-  .sub{ color:var(--muted); margin-bottom:20px }
-  .panel{ background:linear-gradient(180deg, rgba(22,31,48,.9), rgba(13,19,31,.9)); border:1px solid rgba(255,255,255,.08); box-shadow:0 20px 50px rgba(0,0,0,.25) inset, 0 8px 30px rgba(0,0,0,.35); border-radius:18px; padding:16px; margin:14px 0 }
-  .row{ display:flex; flex-wrap:wrap; gap:12px; align-items:center }
-  select, input[type="range"], input[type="number"], input[type="text"]{ width:220px }
-  .kbdDock{ }
+  .app{ max-width:1400px; margin:0 auto; padding:24px; }
+  h1{ font-weight:800; margin:0 0 6px; letter-spacing:.5px; font-size:32px; }
+  h2{ font-weight:700; margin:16px 0 12px; letter-spacing:.3px; font-size:24px; }
+  h3{ font-weight:600; margin:8px 0; font-size:16px; }
+  .sub{ color:var(--muted); margin-bottom:20px; font-size:14px; }
+  .panel{ background:linear-gradient(180deg, rgba(22,31,48,.9), rgba(13,19,31,.9)); border:1px solid rgba(255,255,255,.08); box-shadow:0 20px 50px rgba(0,0,0,.25) inset, 0 8px 30px rgba(0,0,0,.35); border-radius:18px; padding:16px; margin:14px 0; }
+  .row{ display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+  label{ display:block; margin-bottom:4px; font-size:13px; }
+  select, input[type="range"], input[type="number"], input[type="text"]{ background:#1a2332; color:var(--ink); border:1px solid rgba(255,255,255,.1); border-radius:8px; padding:8px; font-size:13px; }
+  select{ width:220px; }
+  input[type="range"]{ width:100%; cursor:pointer; }
+  input[type="number"]{ width:80px; }
+  input[type="checkbox"]{ width:auto; cursor:pointer; }
+  .kbdDock{ margin-top:12px; overflow-x:auto; }
   @media (max-width: 760px){ .kbdDock{ position: sticky; bottom: 8px; z-index: 20; } }
-  .keyboard{ user-select:none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; display:flex; gap:2px; padding:8px; background:#08101a; border-radius:16px; border:1px solid rgba(255,255,255,.06); box-shadow: inset 0 10px 30px rgba(0,0,0,.35) }
-  .key{ position:relative; width:40px; height:140px; border:none; border-radius:8px; cursor:pointer; outline:none; display:flex; align-items:flex-end; justify-content:center; padding-bottom:6px; transition:transform .02s }
-  .key.white{ background: linear-gradient(180deg,#f8fbff,#cfd9ea); color:#1b2430 }
-  .key.black{ background: linear-gradient(180deg,#222938,#0c101a); height:100px; margin:0 -20px; width:36px; z-index:2; color:#d7e5ff }
-  .key.good{ box-shadow: 0 0 0 3px var(--good) inset, 0 0 18px rgba(140,255,152,.2) }
-  .key:active{ transform: translateY(2px) }
-  .label{ font-size:12px; opacity:.8 }
-  .mixer{ display:grid; grid-template-columns: repeat(4, 1fr); gap:12px }
-  .strip{ background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:12px }
-  .strip h3{ margin:0 0 8px; font-size:13px; letter-spacing:.5px; color:var(--muted) }
-  .vol{ width:100% }
-  .muterow{ display:flex; gap:8px; margin-top:6px }
-  .btn{ background: #12233a; color:var(--ink); border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:10px 14px; cursor:pointer }
-  .btn.primary{ background: linear-gradient(180deg,#3aa2ff,#1659bd); border-color:rgba(0,0,0,.2) }
-  .btn.stop{ background: linear-gradient(180deg,#ff6d6d,#b81616) }
-  .grid{ display:grid; grid-template-columns: 1.2fr .8fr; gap:16px }
-  .controls{ display:grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap:10px }
-  .controls label{ display:flex; flex-direction:column; font-size:13px; color:var(--muted) }
-  .slots{ display:grid; grid-template-columns: repeat(3, 1fr); gap:14px }
-  .slotCol{ background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:12px }
-  .slotGrid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:10px }
-  .slot{ background:#0f1724; border:1px solid rgba(255,255,255,.08); border-radius:8px; padding:10px; font-size:13px }
-  .slot .slotName{ font-weight:600; margin-bottom:6px; color:var(--accent) }
-  .slot input[type="file"]{ display:none }
-  .slot .btn{ width:100%; margin-top:4px; padding:6px; font-size:12px }
-  .slotActions{ display:flex; gap:4px; margin-top:6px }
-  .slotActions button{ flex:1; padding:4px; font-size:11px }
-  input[type="number"]{ width:80px }
-  .checkRow{ display:flex; align-items:center; gap:6px; margin-top:4px }
+  .keyboard{ user-select:none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; display:flex; gap:2px; padding:8px; background:#08101a; border-radius:16px; border:1px solid rgba(255,255,255,.06); box-shadow: inset 0 10px 30px rgba(0,0,0,.35); }
+  .key{ position:relative; width:40px; height:140px; border:none; border-radius:8px; cursor:pointer; outline:none; display:flex; align-items:flex-end; justify-content:center; padding-bottom:6px; transition:transform .02s; }
+  .key.white{ background: linear-gradient(180deg,#f8fbff,#cfd9ea); color:#1b2430; }
+  .key.black{ background: linear-gradient(180deg,#222938,#0c101a); height:100px; margin:0 -20px; width:36px; z-index:2; color:#d7e5ff; }
+  .key.good{ box-shadow: 0 0 0 3px var(--good) inset, 0 0 18px rgba(140,255,152,.2); }
+  .key:active{ transform: translateY(2px); }
+  .label{ font-size:11px; opacity:.7; text-align:center; line-height:1.2; }
+  .mixer{ display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; }
+  @media (max-width: 768px){ .mixer{ grid-template-columns: repeat(2, 1fr); } }
+  .strip{ background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:12px; }
+  .strip h3{ margin:0 0 8px; font-size:13px; letter-spacing:.5px; color:var(--muted); text-transform:uppercase; }
+  .vol{ width:100%; }
+  .muterow{ display:flex; gap:8px; margin-top:6px; }
+  .btn{ background: #12233a; color:var(--ink); border:1px solid rgba(255,255,255,.08); border-radius:12px; padding:10px 14px; cursor:pointer; font-size:13px; transition:all .2s; }
+  .btn:hover{ background:#1a2f4a; border-color:rgba(255,255,255,.15); }
+  .btn.primary{ background: linear-gradient(180deg,#3aa2ff,#1659bd); border-color:rgba(0,0,0,.2); font-weight:600; }
+  .btn.primary:hover{ background: linear-gradient(180deg,#4fb2ff,#2070d5); }
+  .btn.stop{ background: linear-gradient(180deg,#ff6d6d,#b81616); font-weight:600; }
+  .btn.stop:hover{ background: linear-gradient(180deg,#ff8585,#d02828); }
+  .grid{ display:grid; grid-template-columns: 1.2fr .8fr; gap:16px; }
+  @media (max-width: 1024px){ .grid{ grid-template-columns: 1fr; } }
+  .controls{ display:grid; grid-template-columns: repeat(2, 1fr); gap:10px; }
+  .controls label{ display:flex; flex-direction:column; font-size:13px; color:var(--muted); gap:4px; }
+  .slots{ display:grid; grid-template-columns: repeat(3, 1fr); gap:14px; margin-top:16px; }
+  @media (max-width: 1024px){ .slots{ grid-template-columns: 1fr; } }
+  .slotCol{ background: rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.06); border-radius:12px; padding:12px; }
+  .slotCol > h3{ margin:0 0 12px; font-size:16px; color:var(--accent); text-transform:uppercase; letter-spacing:.5px; }
+  .slotGrid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:10px; max-height:400px; overflow-y:auto; }
+  .slot{ background:#0f1724; border:1px solid rgba(255,255,255,.08); border-radius:8px; padding:10px; font-size:13px; }
+  .slot .slotName{ font-weight:600; margin-bottom:6px; color:var(--accent); font-size:12px; }
+  .slot input[type="file"]{ display:none; }
+  .slot .btn{ width:100%; margin-top:4px; padding:6px; font-size:12px; }
+  .slotActions{ display:flex; gap:4px; margin-top:6px; }
+  .slotActions button{ flex:1; padding:4px; font-size:11px; }
+  .checkRow{ display:flex; align-items:center; gap:6px; margin-top:4px; font-size:12px; }
+  .checkRow input[type="checkbox"]{ margin:0; }
 `;
 
 export default function App(){
