@@ -692,6 +692,15 @@ export default function App(){
   const drumBank = useMemo(()=> drumSlots.map(s=> s.buffer ?? null), [drumSlots]);
   const { t, setT, start, stop, bars } = useTransport(mixerRef, seqId, {drum: (mutes.drum || drumSource==='loops')?0:volumes.drum, bass:(mutes.bass || bassSource==='loops')?0:volumes.bass, guitar:mutes.guitar?0:volumes.guitar}, drumAssign, drumBank);
 
+  const startAllEnabledLoops = (startTime?: number, barIndex?: number) => {
+    drumLoops.forEach((loop, i)=> {
+      if(loop.enabled && loop.buffer) startLoop('drumloop', i, startTime, barIndex);
+    });
+    bassLoops.forEach((loop, i)=> {
+      if(loop.enabled && loop.buffer) startLoop('bassloop', i, startTime, barIndex);
+    });
+  };
+
   useEffect(()=>{ setT(prev=>({...prev, tempo})) }, [tempo, setT]);
 
   useEffect(()=>{
@@ -699,8 +708,7 @@ export default function App(){
     if(!m) return;
     if(t.isPlaying){
       const startTime = m.ctx.currentTime + 0.05;
-      drumLoops.forEach((loop, i)=> { if(loop.enabled && loop.buffer) startLoop('drumloop', i, startTime, t.barIndex); });
-      bassLoops.forEach((loop, i)=> { if(loop.enabled && loop.buffer) startLoop('bassloop', i, startTime, t.barIndex); });
+      startAllEnabledLoops(startTime, t.barIndex);
     } else {
       activeLoopsRef.current.forEach((_, key)=> stopLoop(key));
     }
@@ -726,18 +734,9 @@ export default function App(){
     if(t.isPlaying){
       const m=mixerRef.current;
       if(!m) return;
-      activeLoopsRef.current.forEach((_, key)=>{
-        const [kind, indexStr] = key.match(/(drumloop|bassloop)(\d+)/)?.slice(1) || [];
-        const index = parseInt(indexStr);
-        if(kind && !isNaN(index)){
-          const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
-          if(loop?.enabled){
-            stopLoop(key);
-            const startTime = m.ctx.currentTime + 0.05;
-            startLoop(kind as 'drumloop'|'bassloop', index, startTime, t.barIndex);
-          }
-        }
-      });
+      activeLoopsRef.current.forEach((_, key)=> stopLoop(key));
+      const startTime = m.ctx.currentTime + 0.05;
+      startAllEnabledLoops(startTime, t.barIndex);
     }
   }, [drumSource, bassSource]);
 
