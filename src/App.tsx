@@ -496,6 +496,9 @@ const CSS = `
   .slotActions button{ flex:1; padding:4px; font-size:11px; }
   .checkRow{ display:flex; align-items:center; gap:6px; margin-top:4px; font-size:12px; }
   .checkRow input[type="checkbox"]{ margin:0; }
+  .loopSlot{ background:#1a1f2e; border-color:rgba(100,214,255,.15); }
+  .loopControls{ margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,.08); }
+  .loopControls label{ display:block; }
 `;
 
 export default function App(){
@@ -532,6 +535,12 @@ export default function App(){
   const [drumSlots, setDrumSlots] = useState<Slot[]>(Array.from({length:30}, (_,i)=>({name:'Drum '+(i+1), buffer:null})));
   const [bassSlots, setBassSlots] = useState<Slot[]>(Array.from({length:30}, (_,i)=>({name:'Bass '+(i+1), buffer:null, root:40})));
 
+  type LoopSlot = { name:string; buffer:AudioBuffer|null; volume:number; enabled:boolean };
+  const [drumLoops, setDrumLoops] = useState<LoopSlot[]>(Array.from({length:8}, (_,i)=>({name:'Drum Loop '+(i+1), buffer:null, volume:0.8, enabled:false})));
+  const [bassLoops, setBassLoops] = useState<LoopSlot[]>(Array.from({length:8}, (_,i)=>({name:'Bass Loop '+(i+1), buffer:null, volume:0.7, enabled:false})));
+
+  const activeLoopsRef = useRef<Map<string, AudioBufferSourceNode>>(new Map());
+
   const [drumAssign, setDrumAssign] = useState<{kick:number|null; snare:number|null; hat:number|null}>({kick:null, snare:null, hat:null});
 
   const sampleBank = useMemo(()=>{
@@ -540,31 +549,95 @@ export default function App(){
     return m;
   }, [guitarSlots]);
 
-  async function loadIntoSlot(file: File, kind: 'guitar'|'drum'|'bass', index:number){
+  async function loadIntoSlot(file: File, kind: 'guitar'|'drum'|'bass'|'drumloop'|'bassloop', index:number){
     ensureCtx(); const ctx = mixerRef.current!.ctx; const buf = await decodeFileToBuffer(ctx, file);
     if (kind==='guitar'){ setGuitarSlots(prev=>{ const p=[...prev]; p[index] = {...p[index], name:file.name, buffer:buf}; return p; }); }
     else if (kind==='drum'){ setDrumSlots(prev=>{ const p=[...prev]; p[index] = {...p[index], name:file.name, buffer:buf}; return p; }); }
-    else { setBassSlots(prev=>{ const p=[...prev]; p[index] = {...p[index], name:file.name, buffer:buf}; return p; }); }
+    else if (kind==='bass'){ setBassSlots(prev=>{ const p=[...prev]; p[index] = {...p[index], name:file.name, buffer:buf}; return p; }); }
+    else if (kind==='drumloop'){ setDrumLoops(prev=>{ const p=[...prev]; p[index] = {...p[index], name:file.name, buffer:buf}; return p; }); }
+    else if (kind==='bassloop'){ setBassLoops(prev=>{ const p=[...prev]; p[index] = {...p[index], name:file.name, buffer:buf}; return p; }); }
   }
 
-  function clearSlot(kind:'guitar'|'drum'|'bass', index:number){
+  function clearSlot(kind:'guitar'|'drum'|'bass'|'drumloop'|'bassloop', index:number){
     if (kind==='guitar') setGuitarSlots(prev=>{ const p=[...prev]; p[index]={...p[index], buffer:null}; return p; });
     else if (kind==='drum') setDrumSlots(prev=>{ const p=[...prev]; p[index]={...p[index], buffer:null}; return p; });
-    else setBassSlots(prev=>{ const p=[...prev]; p[index]={...p[index], buffer:null}; return p; });
+    else if (kind==='bass') setBassSlots(prev=>{ const p=[...prev]; p[index]={...p[index], buffer:null}; return p; });
+    else if (kind==='drumloop') setDrumLoops(prev=>{ const p=[...prev]; p[index]={...p[index], buffer:null, enabled:false}; return p; });
+    else if (kind==='bassloop') setBassLoops(prev=>{ const p=[...prev]; p[index]={...p[index], buffer:null, enabled:false}; return p; });
   }
 
-  function audition(kind:'guitar'|'drum'|'bass', index:number){
+  function audition(kind:'guitar'|'drum'|'bass'|'drumloop'|'bassloop', index:number){
     const m=mixerRef.current;
     if(!m) return;
-    const slot=(kind==='guitar'?guitarSlots:kind==='drum'?drumSlots:bassSlots)[index];
+    let slot: {buffer: AudioBuffer|null} | undefined;
+    let dest: AudioNode;
+    if (kind==='guitar'){ slot=guitarSlots[index]; dest=m.leadBus; }
+    else if (kind==='drum'){ slot=drumSlots[index]; dest=m.drumBus; }
+    else if (kind==='bass'){ slot=bassSlots[index]; dest=m.bassBus; }
+    else if (kind==='drumloop'){ slot=drumLoops[index]; dest=m.drumBus; }
+    else { slot=bassLoops[index]; dest=m.bassBus; }
     if(!slot?.buffer) return;
-    playBufferOnce(m, slot.buffer, kind==='guitar'? m.leadBus : kind==='drum'? m.drumBus : m.bassBus, m.ctx.currentTime+0.01, 1);
+    playBufferOnce(m, slot.buffer, dest, m.ctx.currentTime+0.01, 1);
+  }
+
+  function startLoop(kind: 'drumloop'|'bassloop', index:number){
+    const m=mixerRef.current;
+    if(!m) return;
+    const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
+    if(!loop?.buffer || !loop.enabled) return;
+    const key = kind+index;
+    stopLoop(key);
+    const src = m.ctx.createBufferSource();
+    src.buffer = loop.buffer;
+    src.loop = true;
+    const gain = m.ctx.createGain();
+    gain.gain.value = loop.volume;
+    const dest = kind==='drumloop' ? m.drumBus : m.bassBus;
+    src.connect(gain).connect(dest);
+    src.start(m.ctx.currentTime);
+    activeLoopsRef.current.set(key, src);
+  }
+
+  function stopLoop(key: string){
+    const src = activeLoopsRef.current.get(key);
+    if(src){
+      try { src.stop(); } catch(e){}
+      activeLoopsRef.current.delete(key);
+    }
+  }
+
+  function updateLoopVolume(kind: 'drumloop'|'bassloop', index:number, volume:number){
+    if(kind==='drumloop') setDrumLoops(prev=>{ const p=[...prev]; p[index]={...p[index], volume}; return p; });
+    else setBassLoops(prev=>{ const p=[...prev]; p[index]={...p[index], volume}; return p; });
+  }
+
+  function toggleLoop(kind: 'drumloop'|'bassloop', index:number){
+    const loop = kind==='drumloop' ? drumLoops[index] : bassLoops[index];
+    const newEnabled = !loop.enabled;
+    if(kind==='drumloop') setDrumLoops(prev=>{ const p=[...prev]; p[index]={...p[index], enabled:newEnabled}; return p; });
+    else setBassLoops(prev=>{ const p=[...prev]; p[index]={...p[index], enabled:newEnabled}; return p; });
+
+    const key = kind+index;
+    if(newEnabled && t.isPlaying){
+      startLoop(kind, index);
+    } else {
+      stopLoop(key);
+    }
   }
 
   const drumBank = useMemo(()=> drumSlots.map(s=> s.buffer ?? null), [drumSlots]);
   const { t, setT, start, stop, bars } = useTransport(mixerRef, seqId, {drum: mutes.drum?0:volumes.drum, bass:mutes.bass?0:volumes.bass, guitar:mutes.guitar?0:volumes.guitar}, drumAssign, drumBank);
 
   useEffect(()=>{ setT(prev=>({...prev, tempo})) }, [tempo, setT]);
+
+  useEffect(()=>{
+    if(t.isPlaying){
+      drumLoops.forEach((loop, i)=> { if(loop.enabled && loop.buffer) startLoop('drumloop', i); });
+      bassLoops.forEach((loop, i)=> { if(loop.enabled && loop.buffer) startLoop('bassloop', i); });
+    } else {
+      activeLoopsRef.current.forEach((_, key)=> stopLoop(key));
+    }
+  }, [t.isPlaying]);
 
   const currentChord = bars[t.barIndex % bars.length]?.chord || {root:0, qual:"7" as const};
   const highlightPCs = useMemo(()=> bluesScalePitchesForChord(currentChord), [currentChord]);
@@ -580,7 +653,7 @@ export default function App(){
   return (
     <div className="app" onMouseDown={ensureCtx} onTouchStart={(e)=>{ e.stopPropagation(); ensureCtx(); }}>
       <h1>BluesLooper</h1>
-      <div className="sub">Sequências de 12-bar blues + lead (Synth/Sampler/FX). Agora com <b>20 slots de guitarra</b>, <b>30 de bateria</b> e <b>30 de baixo</b>.</div>
+      <div className="sub">Sequências de 12-bar blues + lead (Synth/Sampler/FX). <b>20 slots de guitarra</b>, <b>30 de bateria</b>, <b>30 de baixo</b> + <b>8 drum loops</b> e <b>8 bass loops</b>.</div>
 
       <div className="panel grid">
         <div>
@@ -711,6 +784,74 @@ export default function App(){
                   <div className="slotActions">
                     {slot.buffer && <><button className="btn" onClick={()=>audition('bass', i)}>Play</button><button className="btn" onClick={()=>clearSlot('bass', i)}>Clear</button></>}
                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <h2>Loops Contínuos</h2>
+        <div className="sub">Loops que tocam continuamente quando o sequenciador está rodando</div>
+        <div className="slots" style={{gridTemplateColumns:'repeat(2, 1fr)'}}>
+          <div className="slotCol">
+            <h3>Drum Loops</h3>
+            <div className="slotGrid">
+              {drumLoops.map((loop, i)=>(
+                <div key={i} className="slot loopSlot">
+                  <div className="slotName">{loop.name}</div>
+                  <input type="file" id={'dl'+i} accept="audio/*" onChange={e=>e.target.files?.[0] && loadIntoSlot(e.target.files[0], 'drumloop', i)} />
+                  <label htmlFor={'dl'+i} className="btn">{loop.buffer?'Replace':'Load'}</label>
+                  {loop.buffer && (
+                    <>
+                      <div className="slotActions">
+                        <button className="btn" onClick={()=>audition('drumloop', i)}>Play</button>
+                        <button className="btn" onClick={()=>clearSlot('drumloop', i)}>Clear</button>
+                      </div>
+                      <div className="loopControls">
+                        <label style={{fontSize:'12px', display:'flex', alignItems:'center', gap:'6px', marginTop:'8px'}}>
+                          <input type="checkbox" checked={loop.enabled} onChange={()=>toggleLoop('drumloop', i)} />
+                          <span>Enable Loop</span>
+                        </label>
+                        <label style={{fontSize:'11px', marginTop:'6px'}}>
+                          Vol: {loop.volume.toFixed(2)}
+                          <input type="range" min={0} max={1} step={0.01} value={loop.volume} onChange={e=>updateLoopVolume('drumloop', i, parseFloat(e.target.value))} style={{width:'100%'}} />
+                        </label>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="slotCol">
+            <h3>Bass Loops</h3>
+            <div className="slotGrid">
+              {bassLoops.map((loop, i)=>(
+                <div key={i} className="slot loopSlot">
+                  <div className="slotName">{loop.name}</div>
+                  <input type="file" id={'bl'+i} accept="audio/*" onChange={e=>e.target.files?.[0] && loadIntoSlot(e.target.files[0], 'bassloop', i)} />
+                  <label htmlFor={'bl'+i} className="btn">{loop.buffer?'Replace':'Load'}</label>
+                  {loop.buffer && (
+                    <>
+                      <div className="slotActions">
+                        <button className="btn" onClick={()=>audition('bassloop', i)}>Play</button>
+                        <button className="btn" onClick={()=>clearSlot('bassloop', i)}>Clear</button>
+                      </div>
+                      <div className="loopControls">
+                        <label style={{fontSize:'12px', display:'flex', alignItems:'center', gap:'6px', marginTop:'8px'}}>
+                          <input type="checkbox" checked={loop.enabled} onChange={()=>toggleLoop('bassloop', i)} />
+                          <span>Enable Loop</span>
+                        </label>
+                        <label style={{fontSize:'11px', marginTop:'6px'}}>
+                          Vol: {loop.volume.toFixed(2)}
+                          <input type="range" min={0} max={1} step={0.01} value={loop.volume} onChange={e=>updateLoopVolume('bassloop', i, parseFloat(e.target.value))} style={{width:'100%'}} />
+                        </label>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
